@@ -80,8 +80,9 @@ def plot_bathymetry(
 ):
     """
     Plot the bathymetry of MITgcm:
-        1. NetCDF data file
-        2. From the informations given in `data` namelist of MITgcm
+
+        1. From the informations given in `data` namelist of MITgcm.
+        2. From Netcdf bathymetry file
     """
     if not any([ncfile, data]) or all([ncfile, data]):
         raise typer.BadParameter("Provide either ncfile or data!")
@@ -141,8 +142,8 @@ def make_bathy(
     """
     Create bathymetry file for MITgcm
 
-    The coordinate information required for creating bathymetry can be given in
-    following ways:
+    The coordinate information required for creating bathymetry can be \
+        given in following ways:
         1) Coordinates taken from the WRF geo_em file.
            This will also create the relevant MITgcm namelist fields.
         2) Coordinates taken from MITgcm namelist. (Not Implemented)
