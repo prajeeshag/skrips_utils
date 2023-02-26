@@ -135,9 +135,38 @@ def _get_bathy_info_from_data(data):
 
 @app.command(name="create")
 def make_bathy(
-    input_bathy: str = typer.Argument(..., help="Path of input bathymetry netcdf file"),
-    wrf_geo: str = typer.Argument(..., help="Path of WRF `geo_em` file"),
-    out_file: str = typer.Option("Bathymetry", help="Path of output bathymetry file"),
+    input_bathy: str = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path of input bathymetry netcdf file",
+    ),
+    wrf_geo: str = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path of WRF `geo_em` file",
+    ),
+    data: str = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path of MITgcm `data` namelist",
+    ),
+    out_file: str = typer.Option(
+        "bathymetry.bin",
+        help="Path of output bathymetry file",
+        exists=False,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+    ),
 ):
     """
     Create bathymetry file for MITgcm
@@ -169,9 +198,7 @@ def make_bathy(
 
     dr_out = regridder(input_bathy, keep_attrs=True)
 
-    dr_out.to_netcdf(f"{out_file}.nc")
-
-    plot_bathy(XLAT_M, XLONG_M, dr_out, filepath=f"{out_file}.png")
+    _da2bin(dr_out, out_file)
 
 
 def _on_pick(event):
@@ -233,8 +260,8 @@ def nc2bin(
         readable=True,
         help="Path of input netcdf bathymetry file",
     ),
-    bin_bathy: Path = typer.Option(
-        None,
+    bin_bathy: Path = typer.Argument(
+        ...,
         file_okay=True,
         dir_okay=False,
         writable=True,
@@ -244,9 +271,6 @@ def nc2bin(
     """
     Convert NetCdf bathymetry file to mitgcm compatible binary file
     """
-    if bin_bathy is None:
-        bin_bathy = Path(f"{nc_bathy.stem}.bin")
-
     z = xr.open_dataset(nc_bathy)["z"]
     _da2bin(z, bin_bathy)
 
@@ -256,5 +280,7 @@ def compare_lnd_ocn_mask(wrf_geo: Path = typer.Option(None)):
 
 
 if __name__ == "__main__":
-    ds = xr.open_dataset("~/S2S/Domain/geo_em.d01.nc")
-    print(ds)
+    # grid = xe.util.grid_global(5, 4)
+    # print(grid["lon"][:, 0])
+    # print(grid["lon_b"][:, 0])
+    ds = xr.open_dataset("~/S2S/")
