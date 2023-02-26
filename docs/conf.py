@@ -23,11 +23,12 @@ sys.path.append(os.path.abspath('../'))
 extensions = [
     'sphinx_copybutton',
     'sphinx.ext.napoleon',
-    'sphinxarg.ext',
     'sphinx.ext.autodoc',
+    'sphinx_click'
 ]
 
-autodoc_mock_imports = ["f90nml", "xarray", "xesmf", "numpy", "matplotlib", "cartopy"]
+# autodoc_mock_imports = ["f90nml", "xarray", "xesmf", "numpy", "matplotlib", "cartopy"]
+click_mock_imports = ["f90nml", "xarray", "xesmf", "numpy", "matplotlib", "cartopy"]
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']

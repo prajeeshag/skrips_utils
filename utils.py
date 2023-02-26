@@ -10,7 +10,11 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import matplotlib.colors as mcolors
-# import something
+
+import typer
+import click
+
+app = typer.Typer()
 
 def plot_bathy(lat, lon, z, filepath='bathymetry.png'):
     ax = plt.axes(projection=ccrs.PlateCarree())
@@ -29,8 +33,12 @@ def plot_bathy(lat, lon, z, filepath='bathymetry.png'):
 
     plt.savefig(filepath)
 
-
-def make_bathy(input_bathy:str,wrf_geo:str,out_file:str='Bathymetry'):
+@app.command(name='create')
+def make_bathy(
+    input_bathy:str = typer.Argument(..., help="Path of input bathymetry netcdf file"),
+    wrf_geo:str = typer.Argument(..., help="Path of WRF `geo_em` file"),
+    out_file:str = typer.Option('Bathymetry', help="Path of output bathymetry file")
+):
     """
     Create bathymetry file for MITGCM
 
@@ -38,11 +46,6 @@ def make_bathy(input_bathy:str,wrf_geo:str,out_file:str='Bathymetry'):
         1) Coordinates taken from the WRF geo_em file. 
            This will also create the relevant MITgcm namelist fields.
         2) Coordinates taken from MITgcm namelist. (Not Implemented)
-
-    Args:
-        wrf_geo (str): Path to WRF geo_em file.
-        input_bathy (str) : Path to the input bathymetry file.
-        out_file (str) : Path of output bathymetry.
     """
 
     ds_geo = xr.open_dataset(wrf_geo)
@@ -68,5 +71,4 @@ def make_bathy(input_bathy:str,wrf_geo:str,out_file:str='Bathymetry'):
     dr_out.to_netcdf(f'{out_file}.nc')
 
     plot_bathy(XLAT_M, XLONG_M, dr_out, filepath=f'{out_file}.png')
-
 

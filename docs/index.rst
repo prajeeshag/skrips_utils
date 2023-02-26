@@ -7,7 +7,7 @@ Welcome to aps2s's documentation!
 
 .. toctree::
     usage
-    :maxdepth: 2
+.. ..    :maxdepth: 2
 .. .. toctree::
 ..    :maxdepth: 2
 ..    :caption: Contents:

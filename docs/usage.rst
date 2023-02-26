@@ -27,12 +27,10 @@ This will create a new conda environment named *aps2s*. Activate this environmen
     Alternatively you can use *mamba* in place of conda. Refer to `Mamba documentation <https://mamba.readthedocs.io/en/latest/installation.html>`_ for installing *mamba*
 
 
-.. you can use the ``aps2s.make_bathy()`` function:
 
 Usage
 ============
 
-.. argparse::
-    :module: aps2s
-    :func: get_cli_parser
-    :prog: aps2s
+.. click:: aps2s:app_click
+   :prog: aps2s
+   :nested: full
