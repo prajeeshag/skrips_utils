@@ -12,7 +12,7 @@ import xesmf as xe
 from matplotlib.backend_bases import MouseButton
 from matplotlib.colors import BoundaryNorm
 from mpl_interactions import panhandler, zoom_factory
-
+from rich import print
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -44,34 +44,30 @@ def plot_bathy(lat, lon, z, filepath="bathymetry.png"):
         transform=ccrs.PlateCarree(),
         extend="min",
     )
+
+    zneg = z[z < 0]
+    zmin = np.min(zneg)
+    zmax = np.max(zneg)
+
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linestyle="--")
     gl.top_labels = False
     gl.right_labels = False
-
+    ax.set_title(f"min={zmin:.2f}, max={zmax:.2f}", loc="right")
     plt.colorbar(cs)
-
     plt.savefig(filepath)
 
 
 @app.command("plot")
 def plot_bathymetry(
-    ncfile: Path = typer.Option(
-        None,
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        help="Path of NetCdf Bathymetry file",
-    ),
-    data: Path = typer.Option(
-        None,
+    data: Path = typer.Argument(
+        ...,
         exists=True,
         readable=True,
         dir_okay=False,
         file_okay=True,
         help="Path of the `data` namelist file of MITgcm",
     ),
-    out_file: Path = typer.Option(
+    output: Path = typer.Option(
         "bathymetry.png",
         writable=True,
         file_okay=True,
@@ -80,23 +76,74 @@ def plot_bathymetry(
     ),
 ):
     """
-    Plot the bathymetry of MITgcm:
-
-        1. From the informations given in `data` namelist of MITgcm.
-        2. From Netcdf bathymetry file
+    Plot the bathymetry of MITgcm: given in `data` namelist of MITgcm.
     """
-    if not any([ncfile, data]) or all([ncfile, data]):
-        raise typer.BadParameter("Provide either ncfile or data!")
 
-    if ncfile:
-        ds = xr.open_dataset(ncfile)
-        z = ds["z"]
-        lat = z["lat"]
-        lon = z["lon"]
-    elif data:
-        z, lat, lon = _get_bathy_info_from_data(data)
+    z, lat, lon = _get_bathy_info_from_data(data)
 
-    plot_bathy(lat, lon, z, filepath=out_file)
+    plot_bathy(lat, lon, z, filepath=output)
+    print(f"Bathymetry figure is saved in file {output}")
+
+
+@app.command("clip")
+def clip_bathymetry(
+    data: Path = typer.Argument(
+        ...,
+        exists=True,
+        readable=True,
+        writable=True,
+        dir_okay=False,
+        file_okay=True,
+        help="MITgcm bathymetry file",
+    ),
+    output: Path = typer.Option(
+        None,
+        exists=False,
+        writable=True,
+        dir_okay=False,
+        file_okay=True,
+        help="Output file",
+    ),
+    overwrite: bool = typer.Option(False, help="Overwrite the input file!!"),
+    mindepth: float = typer.Option(
+        None,
+        help="Minimum depth (-ve downwards), z[z > mindepth] = landvalue",
+    ),
+    maxdepth: float = typer.Option(
+        None,
+        help="Maximum depth (-ve downwards), z[z < maxdepth] = maxdepth",
+    ),
+    landvalue: float = typer.Option(
+        10.0,
+        help="Land value",
+    ),
+):
+    """
+    Clip the bathymetry of MITgcm between min and max values.
+    """
+    if not any([mindepth, maxdepth]):
+        raise typer.BadParameter("Neither mindepth or maxdepth is given.")
+
+    if not output:
+        if overwrite:
+            output = data
+        else:
+            raise typer.BadParameter(
+                "Provide a output file name or use option --overwrite"
+            )
+
+    z = np.fromfile(data, ">f4")
+
+    clip_bathy(z, mindepth, maxdepth, landvalue)
+
+    z.astype(">f4").tofile(output)
+
+
+def clip_bathy(z, mindepth=None, maxdepth=None, landvalue=10.0):
+    if mindepth:
+        z[z > mindepth] = landvalue
+    if maxdepth:
+        z[z < maxdepth] = maxdepth
 
 
 def _get_bathy_info_from_data(data):
