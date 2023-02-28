@@ -13,7 +13,8 @@ from matplotlib.backend_bases import MouseButton
 from matplotlib.colors import BoundaryNorm
 from mpl_interactions import panhandler, zoom_factory
 
-app = typer.Typer()
+
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 def _da2bin(da: xr.DataArray, binfile: Path):
@@ -110,27 +111,49 @@ def _get_bathy_info_from_data(data):
             "The bathymetry plotting is only implemented for spherical-polar grid"
         )
     bathyfile = nml["parm05"]["bathyfile"]
-    xgorigin = nml["parm04"]["xgorigin"]
-    ygorigin = nml["parm04"]["ygorigin"]
-    delx = nml["parm04"]["delx"]
-    dely = nml["parm04"]["dely"]
-    nx = len(delx)
-    ny = len(dely)
 
-    lon = np.zeros(nx)
-    lat = np.zeros(ny)
-
-    lon[0] = xgorigin + delx[0] * 0.5
-    lat[0] = ygorigin + dely[0] * 0.5
-
-    for i in range(nx - 1):
-        lon[i + 1] = lon[i] + (delx[i] + delx[i + 1]) * 0.5
-
-    for i in range(ny - 1):
-        lat[i + 1] = lat[i] + (dely[i] + dely[i + 1]) * 0.5
+    nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
 
     z = np.fromfile(f"{idir}/{bathyfile}", ">f4").reshape(ny, nx)
     return z, lat, lon
+
+
+def grid_from_parm04(nml):
+    xgorigin = nml["xgorigin"]
+    ygorigin = nml["ygorigin"]
+    delx = nml["delx"]
+    dely = nml["dely"]
+    nx = len(delx)
+    ny = len(dely)
+
+    lon_bnd = np.zeros(nx + 1)
+    lat_bnd = np.zeros(ny + 1)
+
+    lon_bnd[0] = xgorigin
+    lat_bnd[0] = ygorigin
+
+    for i, dx in enumerate(delx):
+        lon_bnd[i + 1] = lon_bnd[i] + dx
+
+    for i, dy in enumerate(dely):
+        lat_bnd[i + 1] = lat_bnd[i] + dy
+
+    lon = (lon_bnd[1:] + lon_bnd[0:-1]) * 0.5
+    lat = (lat_bnd[1:] + lat_bnd[0:-1]) * 0.5
+
+    # lon, lat = np.meshgrid(lon, lat)
+    # lon_bnd, lat_bnd = np.meshgrid(lon_bnd, lat_bnd)
+
+    # grid_out = xr.Dataset(
+    #     {
+    #         "lat": (["nlon", "nlat"], lat, {"units": "degrees_north"}),
+    #         "lon": (["nlon", "nlat"], lon, {"units": "degrees_east"}),
+    #         "lat_b": (["nlonb", "nlatb"], lat_bnd, {"units": "degrees_north"}),
+    #         "lon_b": (["nlonb", "nlatb"], lon_bnd, {"units": "degrees_east"}),
+    #     }
+    # )
+
+    return nx, ny, lon, lat
 
 
 @app.command(name="create")
@@ -143,16 +166,8 @@ def make_bathy(
         readable=True,
         help="Path of input bathymetry netcdf file",
     ),
-    wrf_geo: str = typer.Option(
-        None,
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        help="Path of WRF `geo_em` file",
-    ),
-    data: str = typer.Option(
-        None,
+    data: str = typer.Argument(
+        ...,
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -169,29 +184,25 @@ def make_bathy(
     ),
 ):
     """
-    Create bathymetry file for MITgcm
-
-    The coordinate information required for creating bathymetry can be \
-        given in following ways:
-        1) Coordinates taken from the WRF geo_em file.
-           This will also create the relevant MITgcm namelist fields.
-        2) Coordinates taken from MITgcm namelist. (Not Implemented)
+    Create bathymetry file for MITgcm from the grid
+    information taken from MITgcm `data` namelist
     """
-
-    ds_geo = xr.open_dataset(wrf_geo)
     ds_input_bathy = xr.open_dataset(input_bathy)
     input_bathy = ds_input_bathy["z"]
 
-    XLAT_M = ds_geo["XLAT_M"][0, :, 0]
-    XLONG_M = ds_geo["XLONG_M"][0, 0, :]
+    nml = f90nml.read(data)
+    usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
+    if not usingsphericalpolargrid:
+        raise NotImplementedError(
+            "bathymetry create is only implemented for spherical-polar grid"
+        )
 
-    print(XLAT_M.values)
-    print(XLONG_M.values)
+    nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
 
     grid_out = xr.Dataset(
         {
-            "lat": (["lat"], XLAT_M.values, {"units": "degrees_north"}),
-            "lon": (["lon"], XLONG_M.values, {"units": "degrees_east"}),
+            "lat": (["lat"], lat, {"units": "degrees_north"}),
+            "lon": (["lon"], lon, {"units": "degrees_east"}),
         }
     )
     regridder = xe.Regridder(ds_input_bathy, grid_out, "conservative")
