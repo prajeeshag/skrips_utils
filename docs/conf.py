@@ -37,6 +37,7 @@ click_mock_imports = [
     "matplotlib",
     "cartopy",
     "mpl_interactions",
+    "rich"
 ]
 
 templates_path = ["_templates"]
