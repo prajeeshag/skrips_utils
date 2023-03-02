@@ -26,35 +26,39 @@ def _da2bin(da: xr.DataArray, binfile: Path):
     da.values.astype(">f4").tofile(binfile)
 
 
-def plot_bathy(lat, lon, z, filepath="bathymetry.png"):
-    ax = plt.axes(projection=ccrs.PlateCarree())
+def plot_bathy(lat, lon, z, ax_in=None, gridlines=True, title=True):
+    ax = ax_in
+    if not ax:
+        ax = plt.axes(projection=ccrs.PlateCarree())
+
     levels = list(np.linspace(-3000, -200, 10))[:-1] + list(np.linspace(-200, 0, 21))
     levels = [-0.0000001 if item == 0.0 else item for item in levels]
 
     cmap = plt.cm.jet
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=cmap.N)
-
-    cs = ax.contourf(
+    zcopy = z.copy()
+    zcopy[zcopy >= 0] = np.nan
+    cs = ax.pcolormesh(
         lon,
         lat,
-        z,
-        levels=levels,
+        zcopy,
         cmap=cmap,
         norm=norm,
         transform=ccrs.PlateCarree(),
-        extend="min",
     )
 
-    zneg = z[z < 0]
-    zmin = np.min(zneg)
-    zmax = np.max(zneg)
+    if not ax_in:
+        gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linestyle="--")
+        gl.top_labels = False
+        gl.right_labels = False
 
-    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linestyle="--")
-    gl.top_labels = False
-    gl.right_labels = False
-    ax.set_title(f"min={zmin:.2f}, max={zmax:.2f}", loc="right")
-    plt.colorbar(cs)
-    plt.savefig(filepath)
+        zneg = z[z < 0]
+        zmin = np.min(zneg)
+        zmax = np.max(zneg)
+        ax.set_title(f"min={zmin:.2f}, max={zmax:.2f}", loc="right")
+        plt.colorbar(cs)
+
+    return cs
 
 
 @app.command("plot")
@@ -65,7 +69,15 @@ def plot_bathymetry(
         readable=True,
         dir_okay=False,
         file_okay=True,
-        help="Path of the `data` namelist file of MITgcm",
+        help="Path of the namelist file containing the grid information of MITgcm",
+    ),
+    bathy_file: Path = typer.Option(
+        None,
+        exists=True,
+        readable=True,
+        dir_okay=False,
+        file_okay=True,
+        help="Path of bathymetry file",
     ),
     output: Path = typer.Option(
         "bathymetry.png",
@@ -79,15 +91,16 @@ def plot_bathymetry(
     Plot the bathymetry of MITgcm: given in `data` namelist of MITgcm.
     """
 
-    z, lat, lon = _get_bathy_info_from_data(data)
+    z, lat, lon = _get_bathy_info_from_data(data, bathy_file)
 
-    plot_bathy(lat, lon, z, filepath=output)
+    plot_bathy(lat, lon, z)
+    plt.savefig(output)
     print(f"Bathymetry figure is saved in file {output}")
 
 
 @app.command("clip")
 def clip_bathymetry(
-    data: Path = typer.Argument(
+    bathy_file: Path = typer.Argument(
         ...,
         exists=True,
         readable=True,
@@ -107,11 +120,11 @@ def clip_bathymetry(
     overwrite: bool = typer.Option(False, help="Overwrite the input file!!"),
     mindepth: float = typer.Option(
         None,
-        help="Minimum depth (-ve downwards), z[z > mindepth] = landvalue",
+        help="Minimum depth (-ve downwards), z[z > mindepth]=landvalue",
     ),
     maxdepth: float = typer.Option(
         None,
-        help="Maximum depth (-ve downwards), z[z < maxdepth] = maxdepth",
+        help="Maximum depth (-ve downwards), z[z < maxdepth]= maxdepth",
     ),
     landvalue: float = typer.Option(
         10.0,
@@ -126,13 +139,13 @@ def clip_bathymetry(
 
     if not output:
         if overwrite:
-            output = data
+            output = bathy_file
         else:
             raise typer.BadParameter(
                 "Provide a output file name or use option --overwrite"
             )
 
-    z = np.fromfile(data, ">f4")
+    z = np.fromfile(bathy_file, ">f4")
 
     clip_bathy(z, mindepth, maxdepth, landvalue)
 
@@ -146,7 +159,7 @@ def clip_bathy(z, mindepth=None, maxdepth=None, landvalue=10.0):
         z[z < maxdepth] = maxdepth
 
 
-def _get_bathy_info_from_data(data):
+def _get_bathy_info_from_data(data, bathy_file=None):
     """
     Get z, lon, lat from the information provided by `data` namelist
     """
@@ -157,7 +170,9 @@ def _get_bathy_info_from_data(data):
         raise NotImplementedError(
             "The bathymetry plotting is only implemented for spherical-polar grid"
         )
-    bathyfile = nml["parm05"]["bathyfile"]
+    bathyfile = bathy_file
+    if not bathyfile:
+        bathyfile = nml["parm05"]["bathyfile"]
 
     nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
 
