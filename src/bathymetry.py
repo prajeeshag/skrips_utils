@@ -5,6 +5,7 @@ import cartopy.crs as ccrs
 import f90nml
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from matplotlib.widgets import TextBox, Button, CheckButtons
 import numpy as np
 import typer
 import xarray as xr
@@ -13,6 +14,20 @@ from matplotlib.backend_bases import MouseButton
 from matplotlib.colors import BoundaryNorm
 from mpl_interactions import panhandler, zoom_factory
 from rich import print
+from scipy.ndimage import label
+import matplotlib.patches as patches
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler = logging.StreamHandler()
+handler.setLevel(logging.DEBUG)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -274,53 +289,181 @@ def make_bathy(
     _da2bin(dr_out, out_file)
 
 
-def _on_pick(event):
-    mouseevent = event.mouseevent
-    if mouseevent.button is not MouseButton.LEFT:
-        return
-    artist = event.artist
+class Mask(np.ndarray):
+    """Mask class"""
 
-    print(
-        "%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f"
-        % (
-            "double" if mouseevent.dblclick else "single",
-            mouseevent.button,
-            mouseevent.x,
-            mouseevent.y,
-            mouseevent.xdata,
-            mouseevent.ydata,
+    def __new__(cls, input_array):
+        obj = np.asarray(input_array).view(cls)
+        return obj
+
+    def __init__(self, input_array: np.ndarray):
+        pass
+
+    def get_features(self):
+        features, num_features = label(self)
+        return features, list(range(1, num_features + 1))
+
+    def get_pools(self):
+        labeled_array, labels = self.get_features()
+        edge_pixels = np.concatenate(
+            (
+                labeled_array[0, :],
+                labeled_array[-1, :],
+                labeled_array[:, 0],
+                labeled_array[:, -1],
+            )
         )
-    )
-    _gx = int(math.floor(mouseevent.xdata))
-    _gy = int(math.floor(mouseevent.ydata))
-    zz = artist.get_array()
-    dims = [i - 1 for i in artist.get_coordinates().shape[:2]]
-    ind = _gy * dims[1] + _gx
-    zz[ind] = 25
-    artist.set_array(zz)
-    artist.get_figure().canvas.draw()
+        # get the labels that touch the edges
+        edge_labels = np.intersect1d(labels, edge_pixels)
+        # get the labels that do not touch the edges
+        pool_labels = np.setdiff1d(labels, edge_labels)
+
+        pools = labeled_array
+        for i in edge_labels:
+            pools[pools == i] = 0
+
+        return pools, pool_labels
 
 
-def edit_bathy(_on_pick):
-    Z = xr.open_dataset("Bathymetry.nc")["z"]
-    Z = Z.values
-    Z[Z >= 0] = 100
-    with plt.ioff():
-        fig, ax = plt.subplots()
+class Features:
+    def __init__(self) -> None:
+        self.shown = False
+        self.boxes = []
 
-    cmap = plt.colormaps["jet"]
-    cmap.set_over("white")
-    levels = np.linspace(-1000, 0, 10)
-    norm = BoundaryNorm(levels, ncolors=cmap.N)
-    mesh = ax.pcolormesh(Z, cmap=cmap, norm=norm, picker=True)
-    fig.canvas.mpl_connect("pick_event", _on_pick)
-    # plt.title('matplotlib.pyplot.pcolormesh() function Example', fontweight="bold")
 
-    plt.colorbar(mesh)
+class EditBathy:
+    def __init__(self, z) -> None:
+        self.z = z
+        with plt.ioff():
+            self.fig, self.ax = plt.subplots()
 
-    _ = zoom_factory(ax)
-    _ = panhandler(fig, button=2)
-    plt.show()
+        self.omask = Mask(np.where(self.z >= 0, 0, 1))
+        self.cmap = plt.colormaps["tab20"]
+        self.cmap.set_under("white")
+        pools, pool_labels = self.omask.get_pools()
+        self.levels = pool_labels
+        self.norm = BoundaryNorm(self.levels, ncolors=self.cmap.N)
+        # self.mesh = self.ax.pcolormesh(
+        #     self.z, cmap=self.cmap, norm=self.norm, picker=True
+        # )
+        self.mesh = self.ax.pcolormesh(pools, cmap=self.cmap, norm=self.norm)
+        self.fig.canvas.mpl_connect("pick_event", self._on_pick)
+        self.ax.set_aspect("equal")
+
+        self.fig.subplots_adjust(left=0.2)
+        # axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
+        rax = self.fig.add_axes([0.05, 0.4, 0.1, 0.15])
+        check = CheckButtons(ax=rax, labels=["Pools"])
+
+        self.pools = Features()
+        self.islands = Features()
+        check.on_clicked(self._toggle_pools)
+        plt.colorbar(self.mesh)
+        # _ = zoom_factory(self.ax)
+        _ = panhandler(self.fig, button=2)
+        plt.show()
+
+    def _check_box_callback(self, label):
+        if label == "Pools":
+            self._toggle_feature(self.pools)
+        elif label == "Islands":
+            self._toggle_feature(self.islands)
+
+    def _toggle_feature(self, feature):
+        if feature.shown:
+            for rect in feature.boxes:
+                rect.remove()
+            feature.shown = False
+        else:
+            self.pool.boxes = self._get_boxes(*self.omask.get_pools())
+            for rect in feature.boxes:
+                self.ax.add_patch(rect)
+            feature.shown = True
+        self.fig.canvas.draw()
+
+    def _get_boxes(self, features, feature_label):
+        boxes = []
+        for i in feature_label:
+            points = np.where(features == i)
+            ny, nx = features.shape
+            x = np.max([np.min(points[1]) - 1, 0])
+            x2 = np.min([np.max(points[1]) + 1, nx])
+
+            y = np.max([np.min(points[0]) - 1, 0])
+            y2 = np.min([np.max(points[0]) + 1, ny])
+
+            width = x2 - x + 1
+            height = y2 - y + 1
+
+            # recalibrate rectangle if it is too small
+            rwidth = np.max([width, nx // 100])
+            rheight = np.max([height, ny // 100])
+            x = x - (rwidth - width) // 2
+            y = y - (rheight - height) // 2
+            width = rwidth
+            height = rheight
+
+            boxes.append(
+                patches.Rectangle(
+                    (x, y), width, height, linewidth=1, edgecolor="k", facecolor="none"
+                )
+            )
+        return boxes
+
+    def _on_pick(self, event):
+        logger.debug("_on_pick")
+        mouseevent = event.mouseevent
+        if mouseevent.button is not MouseButton.LEFT:
+            return
+        if mouseevent.xdata is None or mouseevent.ydata is None:
+            return
+
+        logger.debug(
+            "%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f"
+            % (
+                "double" if mouseevent.dblclick else "single",
+                mouseevent.button,
+                mouseevent.x,
+                mouseevent.y,
+                mouseevent.xdata,
+                mouseevent.ydata,
+            )
+        )
+        _gx = int(math.floor(mouseevent.xdata))
+        _gy = int(math.floor(mouseevent.ydata))
+        self.z[_gy, _gx] = 25
+        self.mesh.set_array(self.z)
+        self.fig.canvas.draw()
+
+
+@app.command("edit")
+def edit_bathy(
+    mitgcm_grid_nml: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help="MITgcm namelist containing grid information",
+    ),
+    bathy_file: Path = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help=(
+            "MITgcm bathymetry file; \n"
+            + "(if not given program will try to read it from namelist"
+            + " parameter `&parm05:bathyfile`)"
+        ),
+    ),
+):
+    """Opens up a GUI to click and edit Bathymetry"""
+
+    Z, _, _ = _get_bathy_info_from_data(mitgcm_grid_nml, bathy_file=bathy_file)
+    Z[Z >= 0] = 100.0
+    EditBathy(Z)
 
 
 @app.command()
