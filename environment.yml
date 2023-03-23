@@ -1,4 +1,4 @@
-name: aps2s
+name: skrips
 channels:
   - conda-forge
   - defaults
