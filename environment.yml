@@ -13,3 +13,4 @@ dependencies:
   - pip:
       - "f90nml"
       - "docstring_parser"
+      - "typer"

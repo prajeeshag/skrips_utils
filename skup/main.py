@@ -2,7 +2,7 @@
 
 import typer
 
-from src import grid, bathymetry
+from .src import grid, bathymetry
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
