@@ -10,7 +10,7 @@ import os
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "aps2s"
+project = "skup"
 copyright = "2023, Prajeesh Ag"
 author = "Prajeesh Ag"
 
@@ -37,7 +37,8 @@ click_mock_imports = [
     "matplotlib",
     "cartopy",
     "mpl_interactions",
-    "rich"
+    "rich",
+    "scipy",
 ]
 
 templates_path = ["_templates"]

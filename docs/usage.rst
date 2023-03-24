@@ -31,6 +31,6 @@ This will create a new conda environment named *aps2s*. Activate this environmen
 Usage
 ============
 
-.. click:: aps2s:app_click
-   :prog: aps2s
+.. click:: skup.main:app_click
+   :prog: skup
    :nested: full
