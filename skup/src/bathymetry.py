@@ -5,7 +5,7 @@ import cartopy.crs as ccrs
 import f90nml
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from matplotlib.widgets import TextBox, Button, CheckButtons
+from matplotlib.widgets import CheckButtons, Button
 import numpy as np
 import typer
 import xarray as xr
@@ -14,7 +14,7 @@ from matplotlib.backend_bases import MouseButton
 from matplotlib.colors import BoundaryNorm
 from mpl_interactions import panhandler, zoom_factory
 from rich import print
-from scipy.ndimage import label
+from scipy import ndimage
 import matplotlib.patches as patches
 
 import logging
@@ -142,7 +142,7 @@ def clip_bathymetry(
         help="Maximum depth (-ve downwards), z[z < maxdepth]= maxdepth",
     ),
     landvalue: float = typer.Option(
-        10.0,
+        100.0,
         help="Land value",
     ),
 ):
@@ -235,7 +235,7 @@ def grid_from_parm04(nml):
 
 @app.command(name="create")
 def make_bathy(
-    input_bathy: str = typer.Argument(
+    in_file: str = typer.Option(
         ...,
         exists=True,
         file_okay=True,
@@ -243,13 +243,13 @@ def make_bathy(
         readable=True,
         help="Path of input bathymetry netcdf file",
     ),
-    data: str = typer.Argument(
+    grid_nml: str = typer.Option(
         ...,
         exists=True,
         file_okay=True,
         dir_okay=False,
         readable=True,
-        help="Path of MITgcm `data` namelist",
+        help="MITgcm namelist containing grid information",
     ),
     out_file: str = typer.Option(
         "bathymetry.bin",
@@ -264,16 +264,35 @@ def make_bathy(
     Create bathymetry file for MITgcm from the grid
     information taken from MITgcm `data` namelist
     """
-    ds_input_bathy = xr.open_dataset(input_bathy)
-    input_bathy = ds_input_bathy["z"]
+    BDATAVAR = {"z": "SRTM+", "elevation": "Gebco"}
 
-    nml = f90nml.read(data)
+    ds_input_bathy = xr.open_dataset(in_file)
+
+    input_bathy = None
+    for key in BDATAVAR:
+        try:
+            input_bathy = ds_input_bathy[key]
+            dset = BDATAVAR[key]
+            logger.info(f"Using variable `{key}`: assuming `{dset}` Bathymetry")
+            break
+        except KeyError:
+            continue
+
+    if input_bathy is None:
+        keys = BDATAVAR.keys()
+        raise KeyError(
+            f"Bathymetry file doest not contain any variable with names {keys}"
+        )
+
+    logger.info(f"Reading `{grid_nml}`")
+    nml = f90nml.read(grid_nml)
     usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
     if not usingsphericalpolargrid:
         raise NotImplementedError(
             "bathymetry create is only implemented for spherical-polar grid"
         )
 
+    logger.info(f"Generating grid from `{grid_nml}`")
     nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
 
     grid_out = xr.Dataset(
@@ -282,29 +301,43 @@ def make_bathy(
             "lon": (["lon"], lon, {"units": "degrees_east"}),
         }
     )
+    logger.info("Creating regridder")
     regridder = xe.Regridder(ds_input_bathy, grid_out, "conservative")
 
+    logger.info("Remapping Bathymery")
     dr_out = regridder(input_bathy, keep_attrs=True)
 
+    logger.info(f"Writing to bathymetry to `{out_file}`")
     _da2bin(dr_out, out_file)
 
 
-class Mask(np.ndarray):
-    """Mask class"""
+class Features:
+    def __init__(self, mask) -> None:
+        self.shown = False
+        self.boxes = []
+        self.mask = mask
+        self._get_features()
 
-    def __new__(cls, input_array):
-        obj = np.asarray(input_array).view(cls)
-        return obj
+    def _get_features(self):
+        self.array, num_labels = ndimage.label(self.mask)
+        self.labels = list(range(1, num_labels + 1))
 
-    def __init__(self, input_array: np.ndarray):
-        pass
+    def max_points(self, n, array=None):
+        labels = []
+        if array is None:
+            array = self.array.copy()
+        for i in self.labels:
+            npoints = np.count_nonzero(array == i)
+            if npoints > 0 and npoints <= n:
+                labels.append(i)
+            else:
+                array[array == i] = 0
+        return array, labels
 
-    def get_features(self):
-        features, num_features = label(self)
-        return features, list(range(1, num_features + 1))
-
-    def get_pools(self):
-        labeled_array, labels = self.get_features()
+    def no_edge(self, array=None):
+        if array is None:
+            labeled_array = self.array
+        labels = self.labels
         edge_pixels = np.concatenate(
             (
                 labeled_array[0, :],
@@ -321,71 +354,13 @@ class Mask(np.ndarray):
         pools = labeled_array
         for i in edge_labels:
             pools[pools == i] = 0
-
         return pools, pool_labels
 
-
-class Features:
-    def __init__(self) -> None:
-        self.shown = False
-        self.boxes = []
-
-
-class EditBathy:
-    def __init__(self, z) -> None:
-        self.z = z
-        with plt.ioff():
-            self.fig, self.ax = plt.subplots()
-
-        self.omask = Mask(np.where(self.z >= 0, 0, 1))
-        self.cmap = plt.colormaps["tab20"]
-        self.cmap.set_under("white")
-        pools, pool_labels = self.omask.get_pools()
-        self.levels = pool_labels
-        self.norm = BoundaryNorm(self.levels, ncolors=self.cmap.N)
-        # self.mesh = self.ax.pcolormesh(
-        #     self.z, cmap=self.cmap, norm=self.norm, picker=True
-        # )
-        self.mesh = self.ax.pcolormesh(pools, cmap=self.cmap, norm=self.norm)
-        self.fig.canvas.mpl_connect("pick_event", self._on_pick)
-        self.ax.set_aspect("equal")
-
-        self.fig.subplots_adjust(left=0.2)
-        # axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
-        rax = self.fig.add_axes([0.05, 0.4, 0.1, 0.15])
-        check = CheckButtons(ax=rax, labels=["Pools"])
-
-        self.pools = Features()
-        self.islands = Features()
-        check.on_clicked(self._toggle_pools)
-        plt.colorbar(self.mesh)
-        # _ = zoom_factory(self.ax)
-        _ = panhandler(self.fig, button=2)
-        plt.show()
-
-    def _check_box_callback(self, label):
-        if label == "Pools":
-            self._toggle_feature(self.pools)
-        elif label == "Islands":
-            self._toggle_feature(self.islands)
-
-    def _toggle_feature(self, feature):
-        if feature.shown:
-            for rect in feature.boxes:
-                rect.remove()
-            feature.shown = False
-        else:
-            self.pool.boxes = self._get_boxes(*self.omask.get_pools())
-            for rect in feature.boxes:
-                self.ax.add_patch(rect)
-            feature.shown = True
-        self.fig.canvas.draw()
-
-    def _get_boxes(self, features, feature_label):
+    def get_boxes(self, array, labels):
         boxes = []
-        for i in feature_label:
-            points = np.where(features == i)
-            ny, nx = features.shape
+        for i in labels:
+            points = np.where(array == i)
+            ny, nx = array.shape
             x = np.max([np.min(points[1]) - 1, 0])
             x2 = np.min([np.max(points[1]) + 1, nx])
 
@@ -410,11 +385,292 @@ class EditBathy:
             )
         return boxes
 
+
+@app.command()
+def del_islands(
+    grid_nml: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help="MITgcm namelist containing grid information",
+    ),
+    in_file: Path = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help=(
+            "input bathymetry file; \n"
+            + "(if not given program will try to read it from namelist"
+            + " parameter `&parm05:bathyfile`)"
+        ),
+    ),
+    out_file: Path = typer.Option(
+        ...,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+        help="ouput bathymetry file",
+    ),
+    n_points: int = typer.Option(
+        1,
+        help="Islands having grid points <= `n_points` will be deleted",
+    ),
+    min_depth: int = typer.Option(
+        None,
+        help="depth value (if not given will try to find out from the input data)",
+    ),
+    show: bool = typer.Option(
+        False,
+        help="Show the islands which is going to be deleted",
+    ),
+):
+    """Convert small land islands to ocean points"""
+
+    def delete_islands(event):
+        logger.info("Deleting islands")
+        for i in labels:
+            z[array == i] = min_depth
+        logger.info(f"Saving bathymetry to file {out_file}")
+        z.astype(">f4").tofile(out_file)
+        plt.close()
+
+    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    if not min_depth:
+        min_depth = np.amax(z[z < 0])
+    mask = np.where(z >= 0, 1, 0)
+    features = Features(mask)
+    levels = list(np.linspace(-3000, -200, 10))[:-1] + list(np.linspace(-200, 0, 21))
+    levels = [-0.0000001 if item == 0.0 else item for item in levels]
+    cmap = plt.cm.jet
+    cmap.set_over("white")
+    norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=cmap.N)
+    with plt.ioff():
+        fig, ax = plt.subplots()
+    mesh = ax.pcolormesh(z, cmap=cmap, norm=norm)
+    ax.set_aspect("equal")
+    array, labels = features.max_points(n_points)
+    boxes = features.get_boxes(array, labels)
+    for rect in boxes:
+        ax.add_patch(rect)
+    fig.canvas.draw()
+
+    fig.subplots_adjust(bottom=0.2)
+    # axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    axdel = fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    bndel = Button(axdel, "Delete")
+    bndel.on_clicked(delete_islands)
+    plt.colorbar(mesh)
+    plt.show()
+
+
+@app.command()
+def del_ponds(
+    grid_nml: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help="MITgcm namelist containing grid information",
+    ),
+    in_file: Path = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help=(
+            "input bathymetry file; \n"
+            + "(if not given program will try to read it from namelist"
+            + " parameter `&parm05:bathyfile`)"
+        ),
+    ),
+    out_file: Path = typer.Option(
+        ...,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+        help="ouput bathymetry file",
+    ),
+    n_points: int = typer.Option(
+        1,
+        help="Ponds having grid points <= `n_points` will be deleted",
+    ),
+):
+    """Convert small ponds to land points"""
+
+    def delete_islands(event):
+        logger.info("Deleting ponds")
+        for i in labels:
+            z[array == i] = min_depth
+        logger.info(f"Saving bathymetry to file {out_file}")
+        z.astype(">f4").tofile(out_file)
+        plt.close()
+
+    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    min_depth = 100.0
+    mask = np.where(z < 0, 1, 0)
+    features = Features(mask)
+    levels = list(np.linspace(-3000, -200, 10))[:-1] + list(np.linspace(-200, 0, 21))
+    levels = [-0.0000001 if item == 0.0 else item for item in levels]
+    cmap = plt.cm.jet
+    cmap.set_over("white")
+    norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=cmap.N)
+    with plt.ioff():
+        fig, ax = plt.subplots()
+    mesh = ax.pcolormesh(z, cmap=cmap, norm=norm)
+    ax.set_aspect("equal")
+    array, labels = features.max_points(n_points)
+    boxes = features.get_boxes(array, labels)
+    for rect in boxes:
+        ax.add_patch(rect)
+    fig.canvas.draw()
+
+    fig.subplots_adjust(bottom=0.2)
+    # axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    axdel = fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    bndel = Button(axdel, "Delete")
+    bndel.on_clicked(delete_islands)
+    plt.colorbar(mesh)
+    plt.show()
+
+
+@app.command()
+def del_creeks(
+    grid_nml: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help="MITgcm namelist containing grid information",
+    ),
+    in_file: Path = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help=(
+            "input bathymetry file; \n"
+            + "(if not given program will try to read it from namelist"
+            + " parameter `&parm05:bathyfile`)"
+        ),
+    ),
+    out_file: Path = typer.Option(
+        ...,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+        help="ouput bathymetry file",
+    ),
+    n_points: int = typer.Option(
+        1,
+        help="Ponds having grid points <= `n_points` will be deleted",
+    ),
+):
+    """Convert small ponds to land points"""
+
+    def delete_islands(event):
+        logger.info("Deleting ponds")
+        for i in labels:
+            z[array == i] = min_depth
+        logger.info(f"Saving bathymetry to file {out_file}")
+        z.astype(">f4").tofile(out_file)
+        plt.close()
+
+    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    min_depth = 100.0
+    mask = np.where(z < 0, 1, 0)
+    creeks = _creek_mask(mask)
+
+    features = Features(creeks)
+    levels = list(np.linspace(-3000, -200, 10))[:-1] + list(np.linspace(-200, 0, 21))
+    levels = [-0.0000001 if item == 0.0 else item for item in levels]
+    cmap = plt.cm.jet
+    cmap.set_over("white")
+    norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=cmap.N)
+    with plt.ioff():
+        fig, ax = plt.subplots()
+    mesh = ax.pcolormesh(z, cmap=cmap, norm=norm)
+    ax.set_aspect("equal")
+    array, labels = features.max_points(n_points)
+    boxes = features.get_boxes(array, labels)
+    for rect in boxes:
+        ax.add_patch(rect)
+    fig.canvas.draw()
+    fig.subplots_adjust(bottom=0.2)
+    # axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    axdel = fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    bndel = Button(axdel, "Delete")
+    bndel.on_clicked(delete_islands)
+    plt.colorbar(mesh)
+
+    plt.show()
+
+
+def _creek_mask(image, n_neibhours=3):
+    cimage = np.zeros(image.shape, dtype=int)
+    for y in range(image.shape[0]):
+        for x in range(image.shape[1]):
+            # Check if the pixel is black (i.e., part of a feature)
+            if image[y, x] == 1:
+                y1 = max(y - 1, 0)
+                y2 = min(y + 2, image.shape[0] + 1)
+                x1 = max(x - 1, 0)
+                x2 = min(x + 2, image.shape[1] + 1)
+                # Count the number of neighbors of the pixel
+                # num_neighbors = np.sum(image[y1:y2, x1:x2]) - 1
+                nyn = min(np.sum(image[y1:y2, x]) - 1, 1)
+                nxn = min(np.sum(image[y, x1:x2]) - 1, 1)
+
+                # If the pixel has one or two neighbors, label it
+                if nxn + nyn <= 1:
+                    cimage[y, x] = 1
+    return cimage
+
+
+class EditBathy:
+    def __init__(self, z, out_file) -> None:
+        self.z = z
+        self.out_file = out_file
+        self.min_depth = np.amax(z[z < 0])
+        self.lnd_val = 100.0
+        levels = list(np.linspace(-3000, -200, 10))[:-1] + list(
+            np.linspace(-200, 0, 21)
+        )
+        levels = [-0.0000001 if item == 0.0 else item for item in levels]
+        cmap = plt.cm.jet
+        cmap.set_over("white")
+        norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=cmap.N)
+        with plt.ioff():
+            self.fig, self.ax = plt.subplots()
+        self.mesh = self.ax.pcolormesh(z, cmap=cmap, norm=norm, picker=True)
+        self.ax.set_aspect("equal")
+        plt.colorbar(self.mesh)
+
+        # self.mesh = self.ax.pcolormesh(pools, cmap=self.cmap, norm=self.norm)
+        self.fig.canvas.mpl_connect("pick_event", self._on_pick)
+        self.fig.subplots_adjust(bottom=0.2)
+        self.axsave = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
+        self.bndel = Button(self.axsave, "Save")
+        self.bndel.on_clicked(self.save_z)
+
+        _ = zoom_factory(self.ax)
+        _ = panhandler(self.fig, button=2)
+        plt.show()
+
+    def save_z(self, event):
+        logger.info(f"Saving to file {self.out_file}")
+        self.z.astype(">f4").tofile(self.out_file)
+
     def _on_pick(self, event):
         logger.debug("_on_pick")
         mouseevent = event.mouseevent
-        if mouseevent.button is not MouseButton.LEFT:
-            return
         if mouseevent.xdata is None or mouseevent.ydata is None:
             return
 
@@ -431,14 +687,21 @@ class EditBathy:
         )
         _gx = int(math.floor(mouseevent.xdata))
         _gy = int(math.floor(mouseevent.ydata))
-        self.z[_gy, _gx] = 25
+
+        if mouseevent.button is MouseButton.LEFT:
+            # click left mouse button to make a land point
+            self.z[_gy, _gx] = self.lnd_val
+        elif mouseevent.button is MouseButton.RIGHT:
+            # click right mouse button to make a ocean point
+            self.z[_gy, _gx] = self.min_depth
+
         self.mesh.set_array(self.z)
         self.fig.canvas.draw()
 
 
 @app.command("edit")
 def edit_bathy(
-    mitgcm_grid_nml: Path = typer.Argument(
+    grid_nml: Path = typer.Option(
         ...,
         exists=True,
         file_okay=True,
@@ -446,11 +709,11 @@ def edit_bathy(
         readable=True,
         help="MITgcm namelist containing grid information",
     ),
-    bathy_file: Path = typer.Option(
+    in_file: Path = typer.Option(
         None,
         exists=True,
         file_okay=True,
-        dir_okay=True,
+        dir_okay=False,
         readable=True,
         help=(
             "MITgcm bathymetry file; \n"
@@ -458,12 +721,22 @@ def edit_bathy(
             + " parameter `&parm05:bathyfile`)"
         ),
     ),
+    out_file: Path = typer.Option(
+        None,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+        help="ouput bathymetry file",
+    ),
 ):
     """Opens up a GUI to click and edit Bathymetry"""
 
-    Z, _, _ = _get_bathy_info_from_data(mitgcm_grid_nml, bathy_file=bathy_file)
+    if out_file is None:
+        out_file = in_file
+
+    Z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
     Z[Z >= 0] = 100.0
-    EditBathy(Z)
+    EditBathy(Z, out_file=out_file)
 
 
 @app.command()
@@ -491,8 +764,109 @@ def nc2bin(
     _da2bin(z, bin_bathy)
 
 
-def compare_lnd_ocn_mask(wrf_geo: Path = typer.Option(None)):
-    pass
+@app.command()
+def match_wrf_lmask(
+    wrf_geo: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="wrf geo_em file",
+    ),
+    grid_nml: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="MITgcm namelist containing grid information",
+    ),
+    in_file: Path = typer.Option(
+        None,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        help=(
+            "Input bathymetry file; \n"
+            + "(if not given program will try to read it from namelist"
+            + " parameter `&parm05:bathyfile`)"
+        ),
+    ),
+    out_file: Path = typer.Option(
+        ...,
+        file_okay=True,
+        dir_okay=False,
+        writable=True,
+        help=("Output file; \n"),
+    ),
+):
+    """Edits MITgcm bathymetry to match the WRF land mask"""
+
+    logger.info(f"Reading {wrf_geo}")
+    ds = xr.open_dataset(wrf_geo)
+
+    luindex = ds["LU_INDEX"].squeeze()
+
+    iswater = ds.attrs["ISWATER"]
+    ofrac = luindex.values
+    if np.any(np.isnan(ofrac)):
+        msg = "LU_INDEX contains NaN values"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    ofrac[ofrac != iswater] = 0.0  # 17 is water body in LULC of WRF
+    ofrac[ofrac == iswater] = 1.0  # 17 is water body in LULC of WRF
+
+    logger.info("Reading bathymetry file")
+    z, zlat, zlon = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+
+    if np.any(np.isnan(z)):
+        msg = "Bathymetry contains NaN values"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    ocnfrac = z.copy()
+    ocnfrac[ocnfrac >= 0.0] = 0.0
+    ocnfrac[ocnfrac < 0.0] = 1.0
+    mismatch = ocnfrac - ofrac
+
+    lpOcn = np.count_nonzero(ocnfrac)
+    logger.info(f"Number of ocean points in bathymetry file: {lpOcn}")
+    lpOcn = np.count_nonzero(ofrac)
+    logger.info(f"Number of ocean points in {wrf_geo}: {lpOcn}")
+
+    lpOcn = mismatch.size
+    logger.info(f"Total number of points: {lpOcn}")
+    lpOcn = np.count_nonzero(mismatch)
+    logger.info(f"Number of mismatch points: {lpOcn}")
+    lpOcn = np.count_nonzero(mismatch == 1)
+    logger.info(f"Number of points were WRF:land,MITgcm:ocean : {lpOcn}")
+    lpOcn = np.count_nonzero(mismatch == -1)
+    logger.info(f"Number of points were WRF:ocean,MITgcm:land : {lpOcn}")
+    lpOcn = np.count_nonzero(mismatch == 0)
+    logger.info(f"Number of Matching points : {lpOcn}")
+
+    mindepth = np.amax(z[z < 0])
+
+    logger.info(f"Depth value used when creating a ocean point: {mindepth}")
+    # If WRF says land put that point as land in MITgcm
+    logger.info("Points were WRF:land,MITgcm:Ocean: to MITgcm:land")
+    z[mismatch == 1] = 100.0
+    # If WRF says ocean put that point as ocean in
+    # MITgcm with minimum depth value of -5.0
+    logger.info("Points were WRF:ocean,MITgcm:land: to MITgcm:ocean")
+    z[mismatch == -1] = mindepth
+
+    # Compute mismatch Again
+    ocnfrac = z.copy()
+    ocnfrac[ocnfrac >= 0.0] = 0.0
+    ocnfrac[ocnfrac < 0.0] = 1.0
+    mismatch = ocnfrac - ofrac
+    lpOcn = np.count_nonzero(mismatch)
+    logger.info(f"Number of mismatch points: {lpOcn}")
+    z.astype(">f4").tofile(out_file)
 
 
 if __name__ == "__main__":
