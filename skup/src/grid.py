@@ -2,12 +2,7 @@ import typer
 from pathlib import Path
 import xarray as xr
 import f90nml
-import matplotlib.pyplot as plt
-import numpy as np
-import cartopy.crs as ccrs
 
-
-from .bathymetry import _get_bathy_info_from_data, plot_bathy
 
 app = typer.Typer()
 

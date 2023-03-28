@@ -1,23 +1,23 @@
+import logging
 import math
 from pathlib import Path
 
 import cartopy.crs as ccrs
 import f90nml
 import matplotlib.colors as mcolors
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
-from matplotlib.widgets import CheckButtons, Button
 import numpy as np
 import typer
 import xarray as xr
 import xesmf as xe
 from matplotlib.backend_bases import MouseButton
-from matplotlib.colors import BoundaryNorm
+from matplotlib.widgets import Button
 from mpl_interactions import panhandler, zoom_factory
 from rich import print
 from scipy import ndimage
-import matplotlib.patches as patches
 
-import logging
+from .utils import _get_bathy_from_nml, _grid_from_parm04
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def plot_bathymetry(
     Plot the bathymetry of MITgcm: given in `data` namelist of MITgcm.
     """
 
-    z, lat, lon = _get_bathy_info_from_data(data, bathy_file)
+    z, lat, lon = _get_bathy_from_nml(data, bathy_file)
 
     plot_bathy(lat, lon, z)
     plt.savefig(output)
@@ -174,65 +174,6 @@ def clip_bathy(z, mindepth=None, maxdepth=None, landvalue=10.0):
         z[z < maxdepth] = maxdepth
 
 
-def _get_bathy_info_from_data(data, bathy_file=None):
-    """
-    Get z, lon, lat from the information provided by `data` namelist
-    """
-    nml = f90nml.read(data)
-    idir = data.parents[0]
-    usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
-    if not usingsphericalpolargrid:
-        raise NotImplementedError(
-            "The bathymetry plotting is only implemented for spherical-polar grid"
-        )
-    bathyfile = bathy_file
-    if not bathyfile:
-        bathyfile = nml["parm05"]["bathyfile"]
-
-    nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
-
-    z = np.fromfile(f"{idir}/{bathyfile}", ">f4").reshape(ny, nx)
-    return z, lat, lon
-
-
-def grid_from_parm04(nml):
-    xgorigin = nml["xgorigin"]
-    ygorigin = nml["ygorigin"]
-    delx = nml["delx"]
-    dely = nml["dely"]
-    nx = len(delx)
-    ny = len(dely)
-
-    lon_bnd = np.zeros(nx + 1)
-    lat_bnd = np.zeros(ny + 1)
-
-    lon_bnd[0] = xgorigin
-    lat_bnd[0] = ygorigin
-
-    for i, dx in enumerate(delx):
-        lon_bnd[i + 1] = lon_bnd[i] + dx
-
-    for i, dy in enumerate(dely):
-        lat_bnd[i + 1] = lat_bnd[i] + dy
-
-    lon = (lon_bnd[1:] + lon_bnd[0:-1]) * 0.5
-    lat = (lat_bnd[1:] + lat_bnd[0:-1]) * 0.5
-
-    # lon, lat = np.meshgrid(lon, lat)
-    # lon_bnd, lat_bnd = np.meshgrid(lon_bnd, lat_bnd)
-
-    # grid_out = xr.Dataset(
-    #     {
-    #         "lat": (["nlon", "nlat"], lat, {"units": "degrees_north"}),
-    #         "lon": (["nlon", "nlat"], lon, {"units": "degrees_east"}),
-    #         "lat_b": (["nlonb", "nlatb"], lat_bnd, {"units": "degrees_north"}),
-    #         "lon_b": (["nlonb", "nlatb"], lon_bnd, {"units": "degrees_east"}),
-    #     }
-    # )
-
-    return nx, ny, lon, lat
-
-
 @app.command(name="create")
 def make_bathy(
     in_file: str = typer.Option(
@@ -293,7 +234,7 @@ def make_bathy(
         )
 
     logger.info(f"Generating grid from `{grid_nml}`")
-    nx, ny, lon, lat = grid_from_parm04(nml["parm04"])
+    nx, ny, lon, lat = _grid_from_parm04(nml["parm04"])
 
     grid_out = xr.Dataset(
         {
@@ -438,7 +379,7 @@ def del_islands(
         z.astype(">f4").tofile(out_file)
         plt.close()
 
-    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    z, _, _ = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
     if not min_depth:
         min_depth = np.amax(z[z < 0])
     mask = np.where(z >= 0, 1, 0)
@@ -511,7 +452,7 @@ def del_ponds(
         z.astype(">f4").tofile(out_file)
         plt.close()
 
-    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    z, _, _ = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
     min_depth = 100.0
     mask = np.where(z < 0, 1, 0)
     features = Features(mask)
@@ -583,7 +524,7 @@ def del_creeks(
         z.astype(">f4").tofile(out_file)
         plt.close()
 
-    z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    z, _, _ = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
     min_depth = 100.0
     mask = np.where(z < 0, 1, 0)
     creeks = _creek_mask(mask)
@@ -734,7 +675,7 @@ def edit_bathy(
     if out_file is None:
         out_file = in_file
 
-    Z, _, _ = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    Z, _, _ = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
     Z[Z >= 0] = 100.0
     EditBathy(Z, out_file=out_file)
 
@@ -820,7 +761,7 @@ def match_wrf_lmask(
     ofrac[ofrac == iswater] = 1.0  # 17 is water body in LULC of WRF
 
     logger.info("Reading bathymetry file")
-    z, zlat, zlon = _get_bathy_info_from_data(grid_nml, bathy_file=in_file)
+    z, zlat, zlon = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
 
     if np.any(np.isnan(z)):
         msg = "Bathymetry contains NaN values"
