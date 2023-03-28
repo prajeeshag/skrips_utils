@@ -26,25 +26,8 @@ def create_from_wrf(
     """
     Creates the grid parameters for MITgcm from WRf geo_em file.
     """
-    ds = xr.open_dataset(wrf_geo)
 
     nml = get_parm04_from_geo(ds)
     nml.write(out_file, force=True)
 
 
-def get_parm04_from_geo(ds):
-    """Get the MITgcm PARM04 grid parameters from WRF geo_em file xarray dataset"""
-    lat_bnd = ds["XLAT_V"][0, :, 0].values
-    lon_bnd = ds["XLONG_U"][0, 0, :].values
-    nml = f90nml.Namelist()
-    delx = lon_bnd[1:] - lon_bnd[0:-1]
-    dely = lat_bnd[1:] - lat_bnd[0:-1]
-    nml["parm04"] = {
-        "usingsphericalpolargrid": True,
-        "xgorigin": lon_bnd[0],
-        "ygorigin": lat_bnd[0],
-        "delx": list(delx),
-        "dely": list(dely),
-    }
-
-    return nml

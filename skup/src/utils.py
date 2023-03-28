@@ -1,5 +1,6 @@
 import f90nml
 import numpy as np
+import xarray as xr
 
 
 def _get_bathy_from_nml(data, bathy_file=None):
@@ -69,3 +70,28 @@ def _vgrid_from_parm04(nml):
 
     z = np.array(zi[1:]) - delz * 0.5
     return z, delz
+
+def _get_parm04_from_geo():
+    """Get the MITgcm PARM04 grid parameters from WRF geo_em file xarray dataset"""
+    ds = xr.open_dataset('geo_em.d01.nc')
+    # dx = nml_wps['geogrid']['dx']
+    # dy = nml_wps['geogrid']['dy']
+    lat_bnd = ds["XLAT_V"][0, :, 0].values
+    lon_bnd = ds["XLONG_U"][0, 0, :].values
+    nml = f90nml.Namelist()
+    delx = lon_bnd[1:] - lon_bnd[0:-1]
+    dely = lat_bnd[1:] - lat_bnd[0:-1]
+    nx = len(delx)
+    ny = len(dely)
+    delx0 = delx[0]
+    dely0 = dely[0]
+    xg = lon_bnd[0]
+    yg = lat_bnd[0]
+    nml["parm04"] = {
+        "usingsphericalpolargrid": True,
+        "xgorigin": f'{xg:.5f}',
+        "ygorigin": f'{yg:.5f}',
+        "delX": f'{nx}*{delx0:.5f}',
+        "delY": f'{ny}*{dely0:.5f}',
+    }
+    return nml

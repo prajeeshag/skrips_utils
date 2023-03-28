@@ -1,8 +1,7 @@
 from pathlib import Path
 from typing import List
 
-
-from .utils import _get_bathy_from_nml, _vgrid_from_parm04
+from .utils import _get_bathy_from_nml, _vgrid_from_parm04, _get_parm04_from_geo
 import numpy as np
 import xarray as xr
 import f90nml
@@ -31,6 +30,10 @@ BNDDEF = {
     "W": (slice(None), slice(0, 1)),
 }
 
+@app.command()
+def ls_wrfgrid():
+    nml = _get_parm04_from_geo()
+    print(nml)
 
 @app.command()
 def nxyz():
@@ -131,3 +134,63 @@ def gen_bnd(
 def gen_ini(grid_nml, bathy_file):
     """Generate initial conditions for MITgcm"""
     pass
+
+@app.command(name="mk_grid")
+def make_grid(
+    in_file: str = typer.Option(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path of input bathymetry netcdf file",
+    ),
+):
+    """
+    Create bathymetry file for MITgcm from the grid
+    information taken from WRF geo_em.d01.nc
+    """
+    BDATAVAR = {"z": "SRTM+", "elevation": "Gebco"}
+    ds_input_bathy = xr.open_dataset(in_file)
+
+    input_bathy = None
+    for key in BDATAVAR:
+        try:
+            input_bathy = ds_input_bathy[key]
+            dset = BDATAVAR[key]
+            logger.info(f"Using variable `{key}`: assuming `{dset}` Bathymetry")
+            break
+        except KeyError:
+            continue
+
+    if input_bathy is None:
+        keys = BDATAVAR.keys()
+        raise KeyError(
+            f"Bathymetry file doest not contain any variable with names {keys}"
+        )
+
+    logger.info(f"Reading `{grid_nml}`")
+    nml = f90nml.read(grid_nml)
+    usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
+    if not usingsphericalpolargrid:
+        raise NotImplementedError(
+            "bathymetry create is only implemented for spherical-polar grid"
+        )
+
+    logger.info(f"Generating grid from `{grid_nml}`")
+    nx, ny, lon, lat = _grid_from_parm04(nml["parm04"])
+
+    grid_out = xr.Dataset(
+        {
+            "lat": (["lat"], lat, {"units": "degrees_north"}),
+            "lon": (["lon"], lon, {"units": "degrees_east"}),
+        }
+    )
+    logger.info("Creating regridder")
+    regridder = xe.Regridder(ds_input_bathy, grid_out, "conservative")
+
+    logger.info("Remapping Bathymery")
+    dr_out = regridder(input_bathy, keep_attrs=True)
+
+    logger.info(f"Writing to bathymetry to `{out_file}`")
+    _da2bin(dr_out, out_file)
