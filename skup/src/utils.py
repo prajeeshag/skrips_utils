@@ -4,7 +4,7 @@ import numpy as np
 
 def _get_bathy_from_nml(data, bathy_file=None):
     """
-    Get z, lon, lat from the information provided by `data` namelist
+    Get z, lat, lon from the information provided by `data` namelist
     """
     nml = f90nml.read(data)
     idir = data.parents[0]
@@ -59,3 +59,13 @@ def _grid_from_parm04(nml):
     # )
 
     return nx, ny, lon, lat
+
+
+def _vgrid_from_parm04(nml):
+    delz = np.array(nml["parm04"]["delz"])
+    zi = [0.0]
+    for dz in delz:
+        zi.append(zi[-1] + dz)
+
+    z = np.array(zi[1:]) - delz * 0.5
+    return z, delz
