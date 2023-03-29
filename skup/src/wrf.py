@@ -23,45 +23,11 @@ app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 @app.command()
-def match_mitgcm_lmask(
-    wrf_geo: Path = typer.Option(
-        ...,
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        help="wrf geo_em file",
-    ),
-    grid_nml: Path = typer.Option(
-        ...,
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        help="MITgcm namelist containing grid information",
-    ),
-    in_file: Path = typer.Option(
-        None,
-        exists=True,
-        file_okay=True,
-        dir_okay=True,
-        readable=True,
-        help=(
-            "bathymetry file; \n"
-            + "(if not given program will try to read it from namelist"
-            + " parameter `&parm05:bathyfile`)"
-        ),
-    ),
-    out_file: Path = typer.Option(
-        ...,
-        file_okay=True,
-        dir_okay=False,
-        writable=True,
-        help=("Output file; \n"),
-    ),
-):
+def match_mitgcm_lmask():
     """Edits WRF geo_em file to match the MITgcm land mask"""
 
+    wrf_geo = Path("geo_em.d01.nc")
+    grid_nml = Path("data")
     logger.info(f"Reading {wrf_geo}")
     ds = xr.open_dataset(wrf_geo)
     luindex = ds["LU_INDEX"].squeeze()
@@ -78,7 +44,7 @@ def match_mitgcm_lmask(
     ofrac[ofrac == iswater] = 1.0  # 17 is water body in LULC of WRF
 
     logger.info("Reading bathymetry file")
-    z, zlat, zlon = _get_bathy_from_nml(grid_nml, bathy_file=in_file)
+    z, zlat, zlon = _get_bathy_from_nml(grid_nml)
     if np.any(np.isnan(z)):
         msg = "Bathymetry contains NaN values"
         logger.error(msg)
@@ -98,6 +64,9 @@ def match_mitgcm_lmask(
     logger.info(f"Total number of points: {lpOcn}")
     lpOcn = np.count_nonzero(mismatch)
     logger.info(f"Number of mismatch points: {lpOcn}")
+    if lpOcn == 0:
+        logger.info(f"No mismatch points detected!!!")
+        return
     lpOcn = np.count_nonzero(mismatch == 1)
     logger.info(f"Number of points were WRF:land,MITgcm:ocean : {lpOcn}")
     lpOcn = np.count_nonzero(mismatch == -1)
@@ -131,8 +100,18 @@ def match_mitgcm_lmask(
     if lpOcn != 0:
         raise RuntimeError("Mismatch points still exist!!!")
     ds["LU_INDEX"].values[0, :, :] = luindexNew
+    out_file = f"mod_{wrf_geo}"
     logger.info(f"Saving to file: {out_file}")
-    ds.to_netcdf(out_file)
+    encode = {}
+    for var in ds.data_vars:
+        if var == "Times":
+            encode[var] = {
+                "char_dim_name": "DateStrLen",
+                "zlib": True,
+            }
+            continue
+        encode[var] = {"_FillValue": None}
+    ds.to_netcdf(out_file, format="NETCDF4", encoding=encode)
 
 
 if __name__ == "__main__":
