@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
 import matplotlib.patches as patches
 from typing import List
+import glob
 
 from .utils import (
     _get_bathy_from_nml,
@@ -9,6 +11,9 @@ from .utils import (
     _grid_from_parm04,
     _da2bin,
     _get_bathyfile_name,
+    _get_end_date_wps,
+    _get_start_date_wps,
+    _load_yaml,
 )
 import numpy as np
 import xarray as xr
@@ -41,10 +46,10 @@ logger.addHandler(handler)
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
 BNDDEF = {
+    "W": (slice(None), slice(0, 1)),
     "S": (slice(0, 1), slice(None)),
     "E": (slice(None), slice(-1, None)),
     "N": (slice(-1, None), slice(None)),
-    "W": (slice(None), slice(0, 1)),
 }
 
 
@@ -66,8 +71,45 @@ def nxyz():
 
 
 @app.command()
+def gen_grid():
+    """Generate MITgcm Grid file"""
+
+    logger.info("Reading bathymetry and grid info")
+    z, lat, lon = _get_bathy_from_nml(Path("data"))
+    omask = np.array(z.shape, dtype=int)
+    omask = np.where(z < 0, 1, 0)
+    ds_out = xr.Dataset(
+        {
+            "lat": (
+                ["lat"],
+                lat,
+                {"units": "degrees_north"},
+            ),
+            "lon": (
+                ["lon"],
+                lon,
+                {"units": "degrees_east"},
+            ),
+            "z": (
+                ["lat", "lon"],
+                z,
+                {"units": "m"},
+            ),
+        }
+    )
+    encoding = {var: {"_FillValue": None} for var in ds_out.variables}
+    logger.info(f"Writing grid file to Grid.nc")
+    ds_out.to_netcdf(f"Grid.nc", encoding=encoding)
+    z, delz = _vgrid_from_parm04(f90nml.read("data"))
+    with open("vGrid.txt", "wt") as foutput:
+        foutput.write(",".join(["{:.3f}".format(i) for i in z]))
+
+
+@app.command()
 def gen_bnd_grid():
     """Generate MITgcm boundary map nc files"""
+
+    logger.info("Reading bathymetry and grid info")
     z, lat, lon = _get_bathy_from_nml(Path("data"))
     omask = np.array(z.shape, dtype=int)
     omask = np.where(z < 0, 1, 0)
@@ -76,7 +118,7 @@ def gen_bnd_grid():
     for bnd in BNDDEF:
         bndMask = omask[BNDDEF[bnd]]
         isboundary = np.any(bndMask == 1)
-        print(f"{bnd}: {isboundary}")
+        logger.info(f"{bnd}: {isboundary}")
         if not isboundary:
             continue
         bndAct.append(bnd)
@@ -102,29 +144,31 @@ def gen_bnd_grid():
             }
         )
         encoding = {var: {"_FillValue": None} for var in ds_out.variables}
+        logger.info(f"Writing boundary grid file bndGrid{bnd}.nc")
         ds_out.to_netcdf(f"bndGrid{bnd}.nc", encoding=encoding)
-        with open("vGrid.txt", "wt") as foutput:
-            foutput.write(",".join(["{:.3f}".format(i) for i in z]))
+    with open("vGrid.txt", "wt") as foutput:
+        foutput.write(",".join(["{:.3f}".format(i) for i in z]))
 
     return bndAct
 
 
 @app.command()
-def gen_bnd(
-    varnm: str = typer.Option(...),
-    addc: float = typer.Option(0.0),
-    mulc: float = typer.Option(1.0),
-    out_file: Path = typer.Option(None),
-    infiles: List[Path] = typer.Argument(...),
-):
+def gen_bnd(varnm: str, infiles: List[Path], addc=0.0, mulc=1.0):
     """Generate MITgcm boundary conditions"""
-
     grid_nml = Path("data")
     cdo = Cdo()
     z, delz = _vgrid_from_parm04(f90nml.read(grid_nml))
     levels = ",".join(["{:.3f}".format(i) for i in z])
     # generate boundary grids
     bndAct = gen_bnd_grid()
+
+    logger.info("Getting startdate and enddate from `namelist.wps`")
+    start_date = _get_start_date_wps()
+    end_date = _get_end_date_wps()
+    logger.info(f"Start Date {start_date}")
+    logger.info(f"End Date {end_date}")
+
+    BNDVAR = ["t", "v", "u", "s"]
     for bnd in bndAct:
         file0 = infiles[0]
         # Generate cdo weights
@@ -135,8 +179,14 @@ def gen_bnd(
         for file in infiles:
             cdoOpr1 += f" -remap,{gridFile},{wgts} -selvar,{varnm} {file}"
         cdoOpr1 = f" -mulc,{mulc} -addc,{addc} -intlevel,{levels} -mergetime " + cdoOpr1
-        arr = cdo.fillmiss(input=cdoOpr1, returnXArray=varnm)
+        arr = cdo.setmisstonn(input=cdoOpr1, returnXArray=varnm)
+        arr = arr.squeeze()
         logger.info(f"Processing variable {varnm}; {arr.attrs}")
+
+        if np.any(np.isnan(arr.values)):
+            logger.info("Nan Values present in the boundary conditions")
+            logger.info("Trying to fill Nan Values")
+            fill_missing3D(arr.values)
 
         if np.any(np.isnan(arr.values)):
             raise RuntimeError("Nan Values present in the boundary conditions")
@@ -145,18 +195,111 @@ def gen_bnd(
         delta_time = (time.values[1] - time.values[0]) / np.timedelta64(1, "s")
         startdate = time[0].dt.strftime("%Y%m%d-%H%M%S").values
         enddate = time[-1].dt.strftime("%Y%m%d-%H%M%S").values
+        out_file = None
         if out_file is None:
-            out_file = f"ob{bnd}_{varnm}_{startdate}_{delta_time}_{enddate}.bin"
+            out_file = f"ob{bnd}_{varnm}_{startdate}_{int(delta_time)}_{enddate}.bin"
         arr.values.astype(">f4").tofile(out_file)
 
 
-def gen_ini(grid_nml, bathy_file):
+@app.command()
+def gen_ini(varnm: str, ifile: Path, addc=0.0, mulc=1.0, wts: Path = None):
     """Generate initial conditions for MITgcm"""
-    pass
+    grid_nml = Path("data")
+    cdo = Cdo()
+    z, delz = _vgrid_from_parm04(f90nml.read(grid_nml))
+    levels = ",".join(["{:.3f}".format(i) for i in z])
+    # generate boundary grids
+    gen_grid()
+    gridFile = "Grid.nc"
+    if wts is None:
+        logger.info(f"Generating remaping weights")
+        wgts = cdo.gencon(gridFile, input=str(ifile))
+    elif wts.is_file():
+        logger.info(f"Using remaping weights from file {wts}")
+        wgts = wts
+    else:
+        logger.info(f"Generating remaping weights and saving it to {wts}")
+        wgts = cdo.gencon(gridFile, input=str(ifile), output=str(wts))
+
+    cdoOpr1 = " "
+    cdoOpr1 += f" -remap,{gridFile},{wgts} -selvar,{varnm} -seltimestep,1 {ifile}"
+    cdoOpr1 = f" -mulc,{mulc} -addc,{addc} -intlevel,{levels} -mergetime " + cdoOpr1
+    logger.info(f"CDO operation: {cdoOpr1}")
+    arr = cdo.setmisstonn(input=cdoOpr1, returnXArray=varnm, options="-P 8")
+    arr = arr.squeeze()
+    logger.info(f"Processing variable {varnm}; {arr.attrs}")
+
+    if np.any(np.isnan(arr.values)):
+        logger.info("Nan Values present in the initial conditions")
+        logger.info("Trying to fill Nan Values")
+        fill_missing3D(arr.values)
+
+    if np.any(np.isnan(arr.values)):
+        raise RuntimeError("Nan Values present in the initial conditions")
+
+    out_file = None
+    if out_file is None:
+        out_file = f"{varnm}_ini.bin"
+    logger.info(f"Saving to file {out_file}")
+    arr.values.astype(">f4").tofile(out_file)
 
 
-@app.command(name="mk_grid")
-def make_grid(
+def fill_missing3D(arr):
+    for i in range(arr.shape[0]):
+        arr2D = arr[i, :, :]
+        fill_missing_values(arr2D)
+        arr[i, :, :] = arr2D
+
+
+def fill_missing_values(arr):
+    """Fill in missing values in a 2D NumPy array with their nearest non-missing neighbor."""
+
+    # Get the indices of all missing values in the array
+    missing_indices = np.argwhere(np.isnan(arr))
+
+    # Get the shape of the array
+    nrows, ncols = arr.shape
+
+    # Define the directions to search for nearest neighbors
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+
+    # Perform a spiral grid search to fill in missing values with nearest neighbors
+    for r, c in missing_indices:
+        for i in range(1, max(nrows, ncols)):
+            for dr, dc in directions:
+                nr, nc = r + i * dr, c + i * dc
+                if (
+                    nr >= 0
+                    and nr < nrows
+                    and nc >= 0
+                    and nc < ncols
+                    and not np.isnan(arr[nr, nc])
+                ):
+                    arr[r, c] = arr[nr, nc]
+                    break
+            if not np.isnan(arr[r, c]):
+                break
+
+
+def get_bnd_infiles(var, start_date, end_date, form):
+    config_file = os.path.join(os.path.dirname(__file__), f"bndini/{form}.yml")
+    logger.debug(f"Reading config file {config_file}")
+    conf = _load_yaml(config_file)
+    defaults = conf.get("defaults", {})
+    return _parse_data_dir(conf[var]["data"], kwargs=defaults)
+
+
+def _parse_data_dir(xlist, kwargs={}):
+    data_list = []
+    for x in xlist:
+        logger.debug(f"Formating {x} with {kwargs}")
+        xf = x.format(**kwargs)
+        data_list += glob.glob(xf)
+    return data_list
+
+
+@app.command(name="mk_bathy")
+def make_bathy(
     in_file: str = typer.Option(
         ...,
         exists=True,
@@ -168,7 +311,7 @@ def make_grid(
 ):
     """
     Create bathymetry file for MITgcm from the grid
-    information taken from WRF geo_em.d01.nc
+    information taken from `data` namelist
     """
     BDATAVAR = {"z": "SRTM+", "elevation": "Gebco"}
     ds_input_bathy = xr.open_dataset(in_file)
@@ -606,3 +749,48 @@ class EditBathy:
 def edit_bathy():
     """Opens up a GUI to click and edit Bathymetry"""
     EditBathy()
+
+
+@app.command()
+def ini2nc():
+    data_nml = Path("data")
+    nml_data = f90nml.read(data_nml)
+    nx, ny, lon, lat = _grid_from_parm04(nml_data["parm04"])
+    depth, delz = _vgrid_from_parm04(nml_data)
+    nz = len(depth)
+    filenms = {
+        "uvelinitfile": "uo",
+        "vvelinitfile": "vo",
+        "hydrogthetafile": "to",
+        "hydrogsaltfile": "so",
+    }
+    parm05 = nml_data["parm05"]
+    for filnm in filenms:
+        fil = parm05.get(filnm, None)
+        if fil is None:
+            logger.warning(f"Could not find {filnm} in `data:parm05` namelist")
+            continue
+        if not Path(fil).is_file():
+            logger.warning(f"The file {fil} for `data:parm05:{filnm}` does not exist")
+            continue
+
+        fdata = np.fromfile(fil, ">f4").reshape(nz, ny, nx)
+
+        ds_out = xr.Dataset(
+            {
+                "lat": (["lat"], lat, {"units": "degrees_north", "axis": "Y"}),
+                "lon": (["lon"], lon, {"units": "degrees_east", "axis": "X"}),
+                "depth": (
+                    ["depth"],
+                    depth,
+                    {"units": "m", "positive": "down", "axis": "Z"},
+                ),
+                filenms[filnm]: (
+                    ["depth", "lat", "lon"],
+                    fdata,
+                ),
+            }
+        )
+        encoding = {var: {"_FillValue": None} for var in ds_out.variables}
+        logger.info(f"Writing file {filnm}.nc")
+        ds_out.to_netcdf(f"{filnm}.nc", encoding=encoding)

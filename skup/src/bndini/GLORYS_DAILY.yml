@@ -1,0 +1,41 @@
+t:
+  varnm: "thetao"
+  addc: 0.
+  mulc: 1.
+  freq: 86400
+  data:
+    - "{GLORYS_DAILY_PATH}/????/thetao_*.nc"
+u:
+  varnm: "uo"
+  addc: 0.
+  mulc: 1.
+  freq: 86400
+  data:
+    - "{GLORYS_DAILY_PATH}/????/uo_*.nc"
+v:
+  varnm: "vo"
+  addc: 0.
+  mulc: 1.
+  freq: 86400
+  data:
+    - "{GLORYS_DAILY_PATH}/????/vo_*.nc"
+s:
+  varnm: "so"
+  addc: 0.
+  mulc: 1.
+  freq: 86400
+  data:
+    - "{GLORYS_DAILY_PATH}/????/so_*.nc"
+eta:
+  varnm: "zos"
+  addc: 0.
+  mulc: 1.
+  freq: 86400
+  data:
+    - "{GLORYS_DAILY_PATH}/????/zos_*.nc"
+
+defaults:
+  GLORYS_DAILY_PATH: "GLORYS"
+
+pathformat:
+  - "{GLORYS_DAILY_PATH}/{yyyy}/{var}_glorys_daily_{yyyy}{mm}.nc"

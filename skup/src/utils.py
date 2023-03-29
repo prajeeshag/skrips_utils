@@ -1,6 +1,10 @@
 import f90nml
 import numpy as np
 import xarray as xr
+import datetime
+import yaml
+from yaml.loader import SafeLoader
+
 
 from pathlib import Path
 
@@ -108,6 +112,20 @@ def _get_bathyfile_name():
     return f90nml.read("data")["parm05"]["bathyfile"]
 
 
+def _wps_sdate(sdate):
+    return datetime.datetime.strptime(sdate, "%Y-%m-%d_%H:%M:%S")
+
+
+def _get_start_date_wps():
+    sdate = f90nml.read("namelist.wps")["share"]["start_date"]
+    return _wps_sdate(sdate)
+
+
+def _get_end_date_wps():
+    sdate = f90nml.read("namelist.wps")["share"]["end_date"]
+    return _wps_sdate(sdate)
+
+
 def _da2bin(da: xr.DataArray, binfile: Path):
     """
     write xarray data array to with big-endian byte ordering
@@ -115,3 +133,9 @@ def _da2bin(da: xr.DataArray, binfile: Path):
     equivalently, Fortran real*4 format)
     """
     da.values.astype(">f4").tofile(binfile)
+
+
+def _load_yaml(yaml_file):
+    # Open the file and load the file
+    with open(yaml_file) as f:
+        return yaml.load(f, Loader=SafeLoader)
