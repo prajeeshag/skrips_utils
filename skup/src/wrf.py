@@ -31,6 +31,7 @@ def match_mitgcm_lmask():
     logger.info(f"Reading {wrf_geo}")
     ds = xr.open_dataset(wrf_geo)
     luindex = ds["LU_INDEX"].squeeze()
+    landmask = ds["LANDMASK"].squeeze().values
     luindexNew = luindex.values.copy()
     iswater = ds.attrs["ISWATER"]
     islake = ds.attrs["ISLAKE"]
@@ -80,7 +81,10 @@ def match_mitgcm_lmask():
     # If MITgcm says ocean put that point as Ocean in WRF
     logger.info("Converting points WRF:land x MITgcm:ocean: to WRF:ocean")
     luindexNew[mismatch == 1] = iswater
+    landmask[mismatch == 1] = 0
+
     # If WRF says ocean put that point as ocean in
+    # LANDMASK does not change because we converting to LAKE
     logger.info("Converting points WRF:ocean x MITgcm:land: to WRF:lake")
     luindexNew[mismatch == -1] = islake
 
@@ -99,7 +103,10 @@ def match_mitgcm_lmask():
     logger.info(f"Number of mismatch points: {lpOcn}")
     if lpOcn != 0:
         raise RuntimeError("Mismatch points still exist!!!")
+    logger.info(f"Editing LU_INDEX")
     ds["LU_INDEX"].values[0, :, :] = luindexNew
+    logger.info(f"Editing LANDMASK")
+    ds["LANDMASK"].values[0, :, :] = landmask
     out_file = f"mod_{wrf_geo}"
     logger.info(f"Saving to file: {out_file}")
     encode = {}
