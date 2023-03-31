@@ -794,3 +794,22 @@ def ini2nc():
         encoding = {var: {"_FillValue": None} for var in ds_out.variables}
         logger.info(f"Writing file {filnm}.nc")
         ds_out.to_netcdf(f"{filnm}.nc", encoding=encoding)
+
+
+def _get_factors(n):
+    factors = []
+    for i in range(1, n + 1):
+        if n % i == 0:
+            factors.append(i)
+    return factors
+
+
+@app.command()
+def ls_decomp(
+    nx: int = typer.Option(...),
+    ny: int = typer.Option(...),
+    min_point: int = typer.Option(20),
+):
+    xfac = _get_factors(nx)
+    yfac = _get_factors(ny)
+    print(f"xfac={xfac}, yfac={yfac}")
