@@ -821,6 +821,8 @@ def ls_decomp(
     min_points: int = typer.Option(20),
     cpus_per_node: int = typer.Option(None),
 ):
+
+    """ List Possible decompositions for MITgcm given Nx and Ny """
     decompAll = _all_decomp(nx, ny, min_points)
 
     pelist = list(decompAll.keys())
