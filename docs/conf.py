@@ -39,6 +39,8 @@ click_mock_imports = [
     "mpl_interactions",
     "rich",
     "scipy",
+    "yaml",
+    "cdo",
 ]
 
 templates_path = ["_templates"]

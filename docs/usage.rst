@@ -6,21 +6,18 @@ Clone the github repository
 
 .. code-block:: console
 
-    $ git clone https://github.com/prajeeshag/S2SCoupledRoadMap.git
+    $ git clone https://github.com/prajeeshag/skrips_utils.git
+    $ cd skrips_utils
+    $ mamba env create -f environment.yml
+    $ pip install .
 
 
-To use *aps2s*, first create a *conda* (or *mamba*) environment and install the dependencies by running the following command.
 
-.. code-block:: console 
-
-    $ cd S2SCoupledRoadMap/aps2s 
-    $ conda env create -f environment.yml
-
-This will create a new conda environment named *aps2s*. Activate this environment to use the *aps2s.py* script.
+This will create a new conda environment named *skrips*. Activate this environment to use the *skup* script.
 
 .. code-block:: console
 
-    $ conda activate aps2s
+    $ conda activate skrips
 
 .. note:: 
     Install `Miniconda <https://docs.conda.io/en/latest/miniconda.html>`_ to get *conda*.
