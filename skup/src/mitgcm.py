@@ -796,20 +796,81 @@ def ini2nc():
         ds_out.to_netcdf(f"{filnm}.nc", encoding=encoding)
 
 
-def _get_factors(n):
+def _get_factors(n, maxq=1):
     factors = []
     for i in range(1, n + 1):
         if n % i == 0:
+            if n / i < maxq:
+                break
             factors.append(i)
     return factors
+
+
+def _get_peslt(pelist, n):
+    # Get all values less than or equal to n
+    new_list = [val for val in pelist if val <= n]
+    # Remove all values less than or equal to x from the original list
+    old_list = [val for val in pelist if val > n]
+    return new_list, old_list
 
 
 @app.command()
 def ls_decomp(
     nx: int = typer.Option(...),
     ny: int = typer.Option(...),
-    min_point: int = typer.Option(20),
+    min_points: int = typer.Option(20),
+    cpus_per_node: int = typer.Option(None),
 ):
-    xfac = _get_factors(nx)
-    yfac = _get_factors(ny)
-    print(f"xfac={xfac}, yfac={yfac}")
+    decompAll = _all_decomp(nx, ny, min_points)
+
+    pelist = list(decompAll.keys())
+    pelist.sort()
+    npes_per_node = 1
+    if cpus_per_node:
+        npes_per_node = cpus_per_node
+
+    pelistCopy = pelist.copy()
+    nodes = 1
+
+    peNode = {}
+    while pelistCopy:
+        ncpus = int(nodes * npes_per_node)
+        pelistNode, pelistCopy = _get_peslt(pelistCopy, ncpus)
+        if not pelistNode:
+            nodes += 1
+            continue
+        peNode[nodes] = max(pelistNode)
+        nodes += 1
+
+    nodeDecomp = {}
+    print(f"# Nodes, Npes, Nx, Ny ")
+    for node in peNode:
+        npes = peNode[node]
+        dlist = decompAll[npes]
+        dcomp = _best_decomp(dlist)
+        nodeDecomp[node] = dcomp
+        print(f"{node}, {npes}, {dcomp[0]}, {dcomp[1]}")
+
+
+def _best_decomp(dlist):
+    decomp0 = dlist[0]
+    adiff0 = abs(decomp0[0] - decomp0[1])
+    for decomp in dlist[1:]:
+        adiff = abs(decomp[0] - decomp[1])
+        if adiff < adiff0:
+            decomp0 = decomp
+            adiff = adiff0
+    return decomp0
+
+
+def _all_decomp(nx, ny, min_points):
+    xfac = _get_factors(nx, min_points)
+    yfac = _get_factors(ny, min_points)
+    decompAll = {}
+    for nxpes in xfac:
+        for nypes in yfac:
+            npes = int(nxpes * nypes)
+            dlist = decompAll.get(npes, [])
+            dlist.append((nxpes, nypes))
+            decompAll[npes] = dlist
+    return decompAll
