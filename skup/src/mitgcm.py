@@ -606,3 +606,22 @@ class EditBathy:
 def edit_bathy():
     """Opens up a GUI to click and edit Bathymetry"""
     EditBathy()
+
+
+def _get_factors(n):
+    factors = []
+    for i in range(1, n + 1):
+        if n % i == 0:
+            factors.append(i)
+    return factors
+
+
+@app.command()
+def ls_decomp(
+    nx: int = typer.Option(...),
+    ny: int = typer.Option(...),
+    min_point: int = typer.Option(20),
+):
+    xfac = _get_factors(nx)
+    yfac = _get_factors(ny)
+    print(f"xfac={xfac}, yfac={yfac}")
