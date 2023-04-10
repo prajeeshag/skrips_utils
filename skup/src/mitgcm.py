@@ -843,13 +843,16 @@ def ls_decomp(
         nodes += 1
 
     nodeDecomp = {}
-    print(f"# Nodes, Npes, Nx, Ny ")
+    print("# Nodes, Npes, Nx, Ny ")
     for node in peNode:
         npes = peNode[node]
         dlist = decompAll[npes]
         dcomp = _best_decomp(dlist)
         nodeDecomp[node] = dcomp
-        print(f"{node}, {npes}, {dcomp[0]}, {dcomp[1]}")
+        nPx, nPy = dcomp
+        nSx = int(nx / nPx)
+        nSy = int(ny / nPy)
+        print(f"{node} {npes} {nPx} {nPy} {nSx} {nSy}")
 
 
 def _best_decomp(dlist):
