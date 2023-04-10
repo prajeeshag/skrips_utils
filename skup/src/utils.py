@@ -4,7 +4,7 @@ import xarray as xr
 import datetime
 import yaml
 from yaml.loader import SafeLoader
-
+import math
 
 from pathlib import Path
 
@@ -139,3 +139,36 @@ def _load_yaml(yaml_file):
     # Open the file and load the file
     with open(yaml_file) as f:
         return yaml.load(f, Loader=SafeLoader)
+
+
+def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=6370.0):
+    """
+    Calculates the great circle distance between two points on the Earth's surface, given their longitude and latitude coordinates.
+
+    Arguments:
+
+    lon1 (float): the longitude of the first point, in degrees or radians depending on the input_in_radians flag
+    lat1 (float): the latitude of the first point, in degrees or radians depending on the input_in_radians flag
+    lon2 (float): the longitude of the second point, in degrees or radians depending on the input_in_radians flag
+    lat2 (float): the latitude of the second point, in degrees or radians depending on the input_in_radians flag
+    input_in_radians (bool): a flag indicating whether the input coordinates are in radians (True) or degrees (False). Default is False.
+    rearth (float): the radius of the Earth in kilometers. Default is 6370.0 km.
+    Returns:
+
+    The great circle distance between the two points, in kilometers."""
+    xlon1, xlat1, xlon2, xlat2 = lon1, lat1, lon2, lat2
+    if not input_in_radians:
+        xlon1, xlat1, xlon2, xlat2 = map(math.radians, [xlon1, xlat1, xlon2, xlat2])
+    dlon = xlon2 - xlon1
+    dlat = xlat2 - xlat1
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(xlat1) * math.cos(xlat2) * math.sin(dlon / 2) ** 2
+    )
+    return 2.0 * rearth * math.asin(math.sqrt(a))
+    return rearth * (
+        math.acos(
+            math.sin(lat1) * math.sin(lat2)
+            + math.cos(lat1) * math.cos(lat2) * math.cos(lon1 - lon2)
+        )
+    )

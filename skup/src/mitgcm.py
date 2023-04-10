@@ -14,6 +14,7 @@ from .utils import (
     _get_end_date_wps,
     _get_start_date_wps,
     _load_yaml,
+    great_circle,
 )
 import numpy as np
 import xarray as xr
@@ -51,6 +52,44 @@ BNDDEF = {
     "E": (slice(None), slice(-1, None)),
     "N": (slice(-1, None), slice(None)),
 }
+MITGRID_VARS = [
+    "xC",
+    "yC",
+    "dxF",
+    "dyF",
+    "rA",
+    "xG",
+    "yG",
+    "dxV",
+    "dyU",
+    "rAz",
+    "dxC",
+    "dyC",
+    "rAw",
+    "rAs",
+    "dxG",
+    "dyG",
+    "angleCosC",
+    "angleSinC",
+]
+"""
+xG  -> (j=0, i=0), (j=0, i=nx  ), (j=ny,  i=nx  ), (j=ny,  i=0)
+yG  -> (j=0, i=0), (j=0, i=nx  ), (j=ny,  i=nx  ), (j=ny,  i=0)
+dxG -> (j=0, i=0), (j=0, i=nx-1), (j=ny,  i=nx-1), (j=ny,  i=0)
+dyG -> (j=0, i=0), (j=0, i=nx  ), (j=ny-1,i=nx  ), (j=ny-1,i=0)
+xC  -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+yC  -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+dxC -> (j=0, i=1), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=1)
+dyC -> (j=1, i=0), (j=1, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+dxF -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+dyF -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+dxV -> (j=0, i=1), (j=0, i=nx-1), (j=ny,  i=nx-1), (j=ny,  i=1)
+dyU -> (j=1, i=0), (j=1, i=nx  ), (j=ny-1,i=nx  ), (j=ny-1,i=0)
+rA  -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+rAz -> (j=1, i=1), (j=1, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=1)
+rAw -> (j=0, i=1), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=1)
+rAs -> (j=1, i=0), (j=1, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
+"""
 
 
 @app.command()
@@ -821,8 +860,7 @@ def ls_decomp(
     min_points: int = typer.Option(20),
     cpus_per_node: int = typer.Option(None),
 ):
-
-    """ List Possible decompositions for MITgcm given Nx and Ny """
+    """List Possible decompositions for MITgcm given Nx and Ny"""
     decompAll = _all_decomp(nx, ny, min_points)
 
     pelist = list(decompAll.keys())
@@ -876,3 +914,115 @@ def _all_decomp(nx, ny, min_points):
             dlist.append((nxpes, nypes))
             decompAll[npes] = dlist
     return decompAll
+
+
+@app.command()
+def grid2nc(
+    in_file: Path = typer.Option(...),
+    nx: int = typer.Option(...),
+    ny: int = typer.Option(...),
+    out_file: Path = typer.Option(None),
+) -> None:
+    nx1 = nx + 1
+    ny1 = ny + 1
+    nxy1 = int(nx1 * ny1)
+    if out_file is None:
+        out_file = Path(in_file).name
+        out_file = out_file.replace(".bin", "")
+        out_file = out_file + ".nc"
+
+    fdata = np.fromfile(in_file, ">f8")
+    nvars = int(fdata.shape[0] / nxy1)
+    nele1 = nvars * nxy1
+    nele = fdata.shape[0]
+    if nvars * nxy1 != fdata.shape[0]:
+        raise ValueError(
+            f"nvars*(nx+1)*(ny+1) != shape of the data read: {nele1} != {nele}"
+        )
+    fdata = fdata.reshape([nvars, ny1, nx1])
+
+    datavars = {}
+    for i in range(nvars):
+        varnm = MITGRID_VARS[i]
+        data = fdata[i, :, :]
+        datavars[varnm] = (("ny1", "nx1"), data)
+
+    ds = xr.Dataset(data_vars=datavars)
+    ds.to_netcdf(out_file)
+
+
+@app.command(hidden=True)
+def test_grid(in_file: Path):
+    ds = xr.open_dataset(in_file)
+    xC, yC = ds["xC"].values, ds["yC"].values
+    dxC, dyC = ds["dxC"].values, ds["dyC"].values
+    xG, yG = ds["xG"].values, ds["yG"].values
+    dxG, dyG = ds["dxG"].values, ds["dyG"].values
+    dyU, dxV = ds["dyU"].values, ds["dxV"].values
+    ny, nx = xC.shape
+    JY, IX = np.meshgrid(range(ny), range(nx))
+    print(f"{nx}, {ny}")
+    # dxG
+    print("testing dxG calculation!")
+    X1, X2 = xG[:, 0:-1], xG[:, 1:]
+    Y1, Y2 = yG[:, 0:-1], yG[:, 1:]
+    D = dxG[:, 0:-1]
+
+    for lon1, lon2, lat1, lat2, d in zip(*map(np.ravel, [X1, X2, Y1, Y2, D])):
+        dc = great_circle(lon1, lat1, lon2, lat2)
+        d1 = d * 1e-3
+        # print(f"{dc} - {d1}")
+        assert math.isclose(dc, d1, rel_tol=0.00001)
+
+    print("testing dyG calculation!")
+    X1, X2 = xG[0:-1, :], xG[1:, :]
+    Y1, Y2 = yG[0:-1, :], yG[1:, :]
+    D = dyG[0:-1, :]
+    for lon1, lon2, lat1, lat2, d in zip(*map(np.ravel, [X1, X2, Y1, Y2, D])):
+        dc = great_circle(lon1, lat1, lon2, lat2)
+        d1 = d * 1e-3
+        # print(f"{dc} - {d1}")
+        assert math.isclose(dc, d1, rel_tol=0.00001)
+
+    print("testing dyC calculation!")
+    X1, X2 = xC[0:-1, :], xC[1:, :]
+    Y1, Y2 = yC[0:-1, :], yC[1:, :]
+    D = dyC[1:-1, :]
+    for lon1, lon2, lat1, lat2, d in zip(*map(np.ravel, [X1, X2, Y1, Y2, D])):
+        dc = great_circle(lon1, lat1, lon2, lat2)
+        d1 = d * 1e-3
+        # print(f"{dc} - {d1}")
+        assert math.isclose(dc, d1, rel_tol=0.00001)
+
+    print("testing dxC calculation!")
+    X1, X2 = xC[:-1, 0:-2], xC[:-1, 1:-1]
+    Y1, Y2 = yC[:-1, 0:-2], yC[:-1, 1:-1]
+    D = dxC[:-1, 1:-1]
+    jy = JY[:-1, 1:-1]
+    ix = IX[:-1, 1:-1]
+    for lon1, lon2, lat1, lat2, d, i, j in zip(
+        *map(np.ravel, [X1, X2, Y1, Y2, D, jy, ix])
+    ):
+        dc = great_circle(lon1, lat1, lon2, lat2)
+        d1 = d * 1e-3
+        assert math.isclose(
+            dc, d1, rel_tol=0.00001
+        ), f"{dc} - {d1} - {j},{i},{lon1},{lon2},{lat1},{lat2}"
+
+    print("testing dyU calculation!")
+    xU = (xG[:-1, :] + xG[1:, :]) * 0.5
+    yU = (yG[:-1, :] + yG[1:, :]) * 0.5
+    X1, X2 = xU[1:, :], xU[0:-1, :]
+    Y1, Y2 = yU[1:, :], yU[0:-1, :]
+    D = dyU[1:-1, :]
+    jy = JY[1:-1, :]
+    ix = IX[1:-1, :]
+    for lon1, lon2, lat1, lat2, d, i, j in zip(
+        *map(np.ravel, [X1, X2, Y1, Y2, D, jy, ix])
+    ):
+        dc = great_circle(lon1, lat1, lon2, lat2)
+        d1 = d * 1e-3
+        print(f"{dc} - {d1} - {j},{i},{lon1},{lon2},{lat1},{lat2}")
+        # assert math.isclose(
+        #     dc, d1, rel_tol=0.00001
+        # ), f"{dc} - {d1} - {j},{i},{lon1},{lon2},{lat1},{lat2}"

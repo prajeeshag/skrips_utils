@@ -9,8 +9,11 @@ dependencies:
   - cartopy
   - numpy
   - netcdf4
+  - cdo
+  - python-cdo
   - pip 
   - pip:
       - "f90nml"
       - "docstring_parser"
       - "typer"
+      - "pyyaml"

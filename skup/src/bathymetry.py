@@ -14,7 +14,6 @@ import xesmf as xe
 from matplotlib.backend_bases import MouseButton
 from matplotlib.widgets import Button
 from mpl_interactions import panhandler, zoom_factory
-from rich import print
 from scipy import ndimage
 
 from .utils import _get_bathy_from_nml, _grid_from_parm04
