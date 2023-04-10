@@ -1,37 +1,35 @@
+import glob
+import logging
+import math
 import os
 from pathlib import Path
-import matplotlib.patches as patches
 from typing import List
-import glob
 
-from .utils import (
-    _get_bathy_from_nml,
-    _vgrid_from_parm04,
-    _get_parm04_from_geo,
-    _grid_from_parm04,
-    _da2bin,
-    _get_bathyfile_name,
-    _get_end_date_wps,
-    _get_start_date_wps,
-    _load_yaml,
-)
-import numpy as np
-import xarray as xr
 import f90nml
+import matplotlib.colors as mcolors
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
+import typer
 import xarray as xr
 import xesmf as xe
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
+from cdo import Cdo  # python version
+from matplotlib.backend_bases import MouseButton
 from matplotlib.widgets import Button
 from mpl_interactions import panhandler, zoom_factory
-from matplotlib.backend_bases import MouseButton
 from scipy import ndimage
-import math
 
-import logging
-import typer
-from cdo import Cdo  # python version
-
+from .utils import (
+    _da2bin,
+    _get_bathy_from_nml,
+    _get_bathyfile_name,
+    _get_end_date_wps,
+    _get_parm04_from_geo,
+    _get_start_date_wps,
+    _grid_from_parm04,
+    _load_yaml,
+    _vgrid_from_parm04,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +74,6 @@ def gen_grid():
 
     logger.info("Reading bathymetry and grid info")
     z, lat, lon = _get_bathy_from_nml(Path("data"))
-    omask = np.array(z.shape, dtype=int)
-    omask = np.where(z < 0, 1, 0)
     ds_out = xr.Dataset(
         {
             "lat": (
@@ -98,8 +94,8 @@ def gen_grid():
         }
     )
     encoding = {var: {"_FillValue": None} for var in ds_out.variables}
-    logger.info(f"Writing grid file to Grid.nc")
-    ds_out.to_netcdf(f"Grid.nc", encoding=encoding)
+    logger.info("Writing grid file to Grid.nc")
+    ds_out.to_netcdf("Grid.nc", encoding=encoding)
     z, delz = _vgrid_from_parm04(f90nml.read("data"))
     with open("vGrid.txt", "wt") as foutput:
         foutput.write(",".join(["{:.3f}".format(i) for i in z]))
@@ -168,7 +164,6 @@ def gen_bnd(varnm: str, infiles: List[Path], addc=0.0, mulc=1.0):
     logger.info(f"Start Date {start_date}")
     logger.info(f"End Date {end_date}")
 
-    BNDVAR = ["t", "v", "u", "s"]
     for bnd in bndAct:
         file0 = infiles[0]
         # Generate cdo weights
@@ -212,7 +207,7 @@ def gen_ini(varnm: str, ifile: Path, addc=0.0, mulc=1.0, wts: Path = None):
     gen_grid()
     gridFile = "Grid.nc"
     if wts is None:
-        logger.info(f"Generating remaping weights")
+        logger.info("Generating remaping weights")
         wgts = cdo.gencon(gridFile, input=str(ifile))
     elif wts.is_file():
         logger.info(f"Using remaping weights from file {wts}")
@@ -252,7 +247,10 @@ def fill_missing3D(arr):
 
 
 def fill_missing_values(arr):
-    """Fill in missing values in a 2D NumPy array with their nearest non-missing neighbor."""
+    """
+    Fill in missing values in a 2D NumPy array with their
+    nearest non-missing neighbor.
+    """
 
     # Get the indices of all missing values in the array
     missing_indices = np.argwhere(np.isnan(arr))
@@ -332,7 +330,7 @@ def make_bathy(
             f"Bathymetry file doest not contain any variable with names {keys}"
         )
 
-    logger.info(f"Reading `data`")
+    logger.info("Reading `data`")
     nml = f90nml.read("data")
     usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
     if not usingsphericalpolargrid:
@@ -340,7 +338,7 @@ def make_bathy(
             "bathymetry create is only implemented for spherical-polar grid"
         )
 
-    logger.info(f"Generating grid from `data`")
+    logger.info("Generating grid from `data`")
     nx, ny, lon, lat = _grid_from_parm04(nml["parm04"])
     out_file = nml["parm05"]["bathyfile"]
 
@@ -443,7 +441,7 @@ def match_wrf_lmask():
     mismatch = ocnfrac - ofrac
 
     if np.count_nonzero(mismatch) == 0:
-        logger.info(f"No mismatch points detected!!!")
+        logger.info("No mismatch points detected!!!")
         return
 
     lpOcn = np.count_nonzero(ocnfrac)
@@ -821,8 +819,7 @@ def ls_decomp(
     min_points: int = typer.Option(20),
     cpus_per_node: int = typer.Option(None),
 ):
-
-    """ List Possible decompositions for MITgcm given Nx and Ny """
+    """List Possible decompositions for MITgcm given Nx and Ny"""
     decompAll = _all_decomp(nx, ny, min_points)
 
     pelist = list(decompAll.keys())
