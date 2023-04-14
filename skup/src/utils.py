@@ -7,6 +7,9 @@ from yaml.loader import SafeLoader
 import math
 
 from pathlib import Path
+from sphericalpolygon.excess_area import polygon_area
+from sphericalpolygon import Sphericalpolygon
+from typing import Tuple
 
 
 def _get_bathy_from_nml(data, bathy_file=None):
@@ -88,10 +91,6 @@ def _get_parm04_from_geo():
     nml = f90nml.Namelist()
     delx = list(lon_bnd[1:] - lon_bnd[0:-1])
     dely = list(lat_bnd[1:] - lat_bnd[0:-1])
-    nx = len(delx)
-    ny = len(dely)
-    delx0 = delx[0]
-    dely0 = dely[0]
     xg = lon_bnd[0]
     yg = lat_bnd[0]
     nml["parm04"] = {
@@ -126,13 +125,13 @@ def _get_end_date_wps():
     return _wps_sdate(sdate)
 
 
-def _da2bin(da: xr.DataArray, binfile: Path):
+def _da2bin(da: xr.DataArray, binfile: Path, typ: str = ">f4"):
     """
     write xarray data array to with big-endian byte ordering
     as single-precision real numbers (which is NumPy float32 or
     equivalently, Fortran real*4 format)
     """
-    da.values.astype(">f4").tofile(binfile)
+    da.values.astype(typ).tofile(binfile)
 
 
 def _load_yaml(yaml_file):
@@ -143,15 +142,18 @@ def _load_yaml(yaml_file):
 
 def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=6370.0):
     """
-    Calculates the great circle distance between two points on the Earth's surface, given their longitude and latitude coordinates.
+    Calculates the great circle distance between two points on the Earth's surface,
+    given their longitude and latitude coordinates.
 
     Arguments:
 
-    lon1 (float): the longitude of the first point, in degrees or radians depending on the input_in_radians flag
-    lat1 (float): the latitude of the first point, in degrees or radians depending on the input_in_radians flag
-    lon2 (float): the longitude of the second point, in degrees or radians depending on the input_in_radians flag
-    lat2 (float): the latitude of the second point, in degrees or radians depending on the input_in_radians flag
-    input_in_radians (bool): a flag indicating whether the input coordinates are in radians (True) or degrees (False). Default is False.
+    lon1 (float): the longitude of the first point
+    lat1 (float): the latitude of the first point
+    lon2 (float): the longitude of the second point
+    lat2 (float): the latitude of the second point
+    input_in_radians (bool): a flag indicating whether the
+            input coordinates are in radians (True) or degrees (False).
+            Default is False.
     rearth (float): the radius of the Earth in kilometers. Default is 6370.0 km.
     Returns:
 
@@ -172,3 +174,25 @@ def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=6370.0):
             + math.cos(lat1) * math.cos(lat2) * math.cos(lon1 - lon2)
         )
     )
+
+
+def quadrilateral_area_on_earth(
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    c: Tuple[float, float],
+    d: Tuple[float, float],
+    R: float = 6370.0,
+) -> float:
+    # return polygon_area([a, b, c, d, a]) * R * R
+    arr = [a, b, c, d]
+    polygon = Sphericalpolygon.from_array([a, b, c, d])
+    return polygon.area(R)
+
+
+def load_bathy(bathy_file: Path, nx: int, ny: int):
+    z = np.fromfile(bathy_file, ">f4")
+    if len(z) != nx * ny:
+        raise ValueError(
+            f"Dimension mismatch for bathymetry field from file {bathy_file}"
+        )
+    return z.reshape(ny, nx)
