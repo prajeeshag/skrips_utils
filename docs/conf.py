@@ -30,6 +30,7 @@ extensions = [
 
 # autodoc_mock_imports = ["f90nml", "xarray", "xesmf", "numpy", "matplotlib", "cartopy"]
 click_mock_imports = [
+    "sphericalpolygon",
     "f90nml",
     "xarray",
     "xesmf",

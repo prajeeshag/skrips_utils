@@ -1411,7 +1411,7 @@ def great_circle_a(X1, X2, Y1, Y2):
     return np.array(dc).reshape(X1.shape)
 
 
-def quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4, nprocs: int | None = None):
+def quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4, nprocs: int = None):
     if nprocs is None:
         pool = Pool()
     else:

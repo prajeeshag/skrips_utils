@@ -1,6 +1,6 @@
 Sphinx
+sphinx-rtd-theme
 typer
 git+https://github.com/prajeeshag/sphinx-click@dev#egg=sphinx-click
 sphinx-copybutton
 docstring_parser
-sphinx-rtd-theme
