@@ -1250,6 +1250,7 @@ def wrfgrid(
     X2 = gA["xG"][:, 1:]
     Y2 = gA["yG"][:, 1:]
     gA["dxG"][:, :-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dxG"][:, -1] = gA["dxG"][:, -2]
 
     # dyG -> (j=0, i=0), (j=0, i=nx  ), (j=ny-1,i=nx  ), (j=ny-1,i=0)
     logger.info("computing dyG")
@@ -1258,6 +1259,7 @@ def wrfgrid(
     X2 = gA["xG"][1:, :]
     Y2 = gA["yG"][1:, :]
     gA["dyG"][:-1, :] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dyG"][-1, :] = gA["dyG"][-2, :]
 
     # dxC -> (j=0, i=1), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=1)
     logger.info("computing dyC")
@@ -1266,6 +1268,9 @@ def wrfgrid(
     X2 = gA["xC"][:-1, 1:-1]
     Y2 = gA["yC"][:-1, 1:-1]
     gA["dxC"][:-1, 1:-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dxC"][:, 0] = gA["dxC"][:, 1]
+    gA["dxC"][:, -1] = gA["dxC"][:, -2]
+    gA["dxC"][-1, :] = gA["dxC"][-2, :]
 
     # dyC -> (j=1, i=0), (j=1, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
     logger.info("computing dyC")
@@ -1274,6 +1279,9 @@ def wrfgrid(
     X2 = gA["xC"][1:-1, :-1]
     Y2 = gA["yC"][1:-1, :-1]
     gA["dyC"][1:-1, :-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dyC"][0, :] = gA["dyC"][1, :]
+    gA["dyC"][-1, :] = gA["dyC"][-2, :]
+    gA["dyC"][:, -1] = gA["dyC"][:, -2]
 
     # dxF -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
     logger.info("computing dxF")
@@ -1282,6 +1290,8 @@ def wrfgrid(
     X2 = gA["xV"][:-1, 1:]
     Y2 = gA["yV"][:-1, 1:]
     gA["dxF"][:-1, :-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dxF"][:-1, -1] = gA["dxF"][:-1, -2]
+    gA["dxF"][-1, :-1] = gA["dxF"][-2, :-1]
 
     # dyF -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
     logger.info("computing dyF")
@@ -1298,6 +1308,7 @@ def wrfgrid(
     X2 = gA["xV"][:-1, 1:-1]
     Y2 = gA["yV"][:-1, 1:-1]
     gA["dxV"][:-1, 1:-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dxV"][:-1, 0] = gA["dxV"][:-1, 1]
 
     # dyU -> (j=1, i=0), (j=1, i=nx  ), (j=ny-1,i=nx  ), (j=ny-1,i=0)
     logger.info("computing dyU")
@@ -1306,6 +1317,7 @@ def wrfgrid(
     X2 = gA["xU"][1:-1, :-1]
     Y2 = gA["yU"][1:-1, :-1]
     gA["dyU"][1:-1, :-1] = great_circle_a(X1, X2, Y1, Y2)
+    gA["dyU"][0, :-1] = gA["dyU"][1, :-1]
 
     # rA  -> (j=0, i=0), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
     logger.info("computing rA")
@@ -1322,6 +1334,8 @@ def wrfgrid(
     X3, Y3 = gA["xC"][1:-1, 1:-1], gA["yC"][1:-1, 1:-1]
     X4, Y4 = gA["xC"][1:-1, :-2], gA["yC"][1:-1, :-2]
     gA["rAz"][1:-1, 1:-1] = quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4)
+    gA["rAz"][0, :] = gA["rAz"][1, :]
+    gA["rAz"][:, 0] = gA["rAz"][:, 1]
 
     # rAw -> (j=0, i=1), (j=0, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=1)
     logger.info("computing rAw")
@@ -1330,6 +1344,7 @@ def wrfgrid(
     X3, Y3 = gA["xV"][1:, 1:-1], gA["yV"][1:, 1:-1]
     X4, Y4 = gA["xV"][1:, :-2], gA["yV"][1:, :-2]
     gA["rAw"][:-1, 1:-1] = quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4)
+    gA["rAw"][:, 0] = gA["rAw"][:, 1]
 
     # rAs -> (j=1, i=0), (j=1, i=nx-1), (j=ny-1,i=nx-1), (j=ny-1,i=0)
     logger.info("computing rAs")
@@ -1338,14 +1353,14 @@ def wrfgrid(
     X3, Y3 = gA["xU"][1:-1, 1:], gA["yU"][1:-1, 1:]
     X4, Y4 = gA["xU"][1:-1, :-1], gA["yU"][1:-1, :-1]
     gA["rAs"][1:-1, :-1] = quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4)
+    gA["rAs"][0, :] = gA["rAs"][1, :]
 
-    nx, ny = nxp1 - 1, nyp1 - 1
-    out_file_prefix = f"{in_file.stem}_{nx}x{ny}.mitgrid"
+    out_file_prefix = "tile001.mitgrid"
     out_file = f"{out_file_prefix}.nc"
     logger.info(f"writing {out_file}")
     dump_grid_nc(gA, out_file)
 
-    out_file = out_file_prefix
+    out_file = f"{out_file_prefix}.bin"
     logger.info(f"writing {out_file}")
     dump_grid(gA, out_file)
 
