@@ -1393,7 +1393,7 @@ def wrfgrid(
     logger.info(f"writing {out_file}")
     dump_grid_nc(gA, out_file)
 
-    out_file = f"{out_file_prefix}.bin"
+    out_file = f"{out_file_prefix}"
     logger.info(f"writing {out_file}")
     dump_grid(gA, out_file)
 
