@@ -11,9 +11,10 @@ dependencies:
   - netcdf4
   - cdo
   - python-cdo
-  - pip 
+  - pip
   - pip:
       - "f90nml"
       - "docstring_parser"
       - "typer"
       - "pyyaml"
+      - git+https://github.com/prajeeshag/SphericalPolygon@sphericalpolygon@patch-1
