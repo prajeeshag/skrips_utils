@@ -858,7 +858,7 @@ class EditBathy:
         self.out_file = bathy_file
         logger.info(f"Reading bathymetry from {self.out_file}")
         self.z = load_bathy(bathy_file, nx, ny)
-        self.z[self.z >= 0] = 1000.0
+        self.z[self.z >= 0] = 1.0
         self.min_depth = np.amax(self.z[self.z < 0])
         logger.info(f"Minimum ocean depth {self.min_depth}")
         self.lnd_val = 100.0
