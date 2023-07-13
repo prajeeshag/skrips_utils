@@ -168,6 +168,9 @@ def gen_bnd_grid(
         z, lat, lon = _get_bathy_from_nml(Path("data"))
         lat, lon = np.meshgrid(lat, lon)
 
+    zl, delz = _vgrid_from_parm04(f90nml.read("data"))
+    levels = ",".join(["{:.3f}".format(i) for i in zl])
+    print(levels)
     omask = np.array(z.shape, dtype=int)
     omask = np.where(z < 0, 1, 0)
     bndAct = []
@@ -205,6 +208,32 @@ def gen_bnd_grid(
 
     return bndAct
 
+@app.command()
+def bndnc2bin(
+    varnm: str,
+    ifile: Path,
+):
+    """boundary conditions nc files to binary file"""
+
+    cdo = Cdo()
+    arr = cdo.selvar(varnm, input=str(ifile), returnXArray=varnm)
+    arr = arr.squeeze()
+
+    if np.any(np.isnan(arr.values)):
+        logger.info("Nan Values present in the boundary conditions")
+        logger.info("Trying to fill Nan Values")
+        fill_missing3D(arr.values)
+
+    if np.any(np.isnan(arr.values)):
+        raise RuntimeError("Nan Values present in the boundary conditions")
+
+    time = arr["time"]
+    delta_time = (time.values[1] - time.values[0]) / np.timedelta64(1, "s")
+    startdate = time[0].dt.strftime("%Y%m%d-%H%M%S").values
+    enddate = time[-1].dt.strftime("%Y%m%d-%H%M%S").values
+    out_file = f"{ifile.stem}_{startdate}_{int(delta_time)}_{enddate}.bin"
+    logger.info(out_file)
+    arr.values.astype(">f4").tofile(out_file)
 
 @app.command()
 def gen_bnd(
@@ -1059,7 +1088,7 @@ def ls_decomp(
         nodes += 1
 
     nodeDecomp = {}
-    print("# Nodes, Npes, Nx, Ny ")
+    print("# Nodes, Npes, nPx, nPy, nSx, nSy ")
     for node in peNode:
         npes = peNode[node]
         dlist = decompAll[npes]
