@@ -12,6 +12,9 @@ from sphericalpolygon import Sphericalpolygon
 from typing import Tuple
 
 
+RSPHERE = 6370000.0
+
+
 def _get_bathy_from_nml(data, bathy_file=None):
     """
     Get z, lat, lon from the information provided by `data` namelist
@@ -140,7 +143,7 @@ def _load_yaml(yaml_file):
         return yaml.load(f, Loader=SafeLoader)
 
 
-def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=6370.0):
+def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=RSPHERE):
     """
     Calculates the great circle distance between two points on the Earth's surface,
     given their longitude and latitude coordinates.
@@ -154,7 +157,7 @@ def great_circle(lon1, lat1, lon2, lat2, input_in_radians=False, rearth=6370.0):
     input_in_radians (bool): a flag indicating whether the
             input coordinates are in radians (True) or degrees (False).
             Default is False.
-    rearth (float): the radius of the Earth in kilometers. Default is 6370.0 km.
+    rearth (float): the radius of the Earth in kilometers. Default is 6370000 m.
     Returns:
 
     The great circle distance between the two points, in kilometers."""
@@ -181,7 +184,7 @@ def quadrilateral_area_on_earth(
     b: Tuple[float, float],
     c: Tuple[float, float],
     d: Tuple[float, float],
-    R: float = 6370.0,
+    R: float = RSPHERE,
 ) -> float:
     # return polygon_area([a, b, c, d, a]) * R * R
     arr = [a, b, c, d]
