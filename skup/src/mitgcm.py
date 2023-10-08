@@ -33,7 +33,7 @@ from .utils import (
     _load_yaml,
     _vgrid_from_parm04,
     great_circle,
-    quadrilateral_area_on_earth,
+    area_on_earth_g,
     load_bathy,
 )
 
@@ -331,6 +331,9 @@ def gen_ini(
         logger.info("Trying to fill Nan Values")
         fill_missing3D(arr.values)
 
+    min_value = arr.min()
+    arr = arr.fillna(min_value)
+
     if np.any(np.isnan(arr.values)):
         raise RuntimeError("Nan Values present in the initial conditions")
 
@@ -401,15 +404,19 @@ def _parse_data_dir(xlist, kwargs={}):
 @app.command()
 def mk_bathy(
     in_file: Path = typer.Option(
-        ...,
+        None,
         exists=True,
         file_okay=True,
         dir_okay=False,
         readable=True,
         help="Path of input bathymetry netcdf file",
     ),
+    const_val: float = typer.Option(
+        -500,
+        help="Constant value for bathymetry",
+    ),
     grid_file: Path = typer.Option(
-        None,
+        ...,
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -417,13 +424,13 @@ def mk_bathy(
         help="grid file",
     ),
     nx: int = typer.Option(
-        None, help="no of grid points in x-dir (must be given if grid_file is given)"
+        ..., help="no of grid points in x-dir (must be given if grid_file is given)"
     ),
     ny: int = typer.Option(
-        None, help="no of grid points in y-dir (must be given if grid_file is given)"
+        ..., help="no of grid points in y-dir (must be given if grid_file is given)"
     ),
     out_file: Path = typer.Option(
-        None,
+        Path('bathymetry.bin'),
         file_okay=True,
         dir_okay=False,
         writable=True,
@@ -436,31 +443,25 @@ def mk_bathy(
     2. From the grid information from the `grid-file`, (--nx, --ny, --out-file) should be provided
     """
     BDATAVAR = {"z": "SRTM+", "elevation": "Gebco"}
-    ds_input_bathy = xr.open_dataset(in_file)
-
+    
     input_bathy = None
-    for key in BDATAVAR:
-        try:
-            input_bathy = ds_input_bathy[key]
-            dset = BDATAVAR[key]
-            logger.info(f"Using variable `{key}`: assuming `{dset}` Bathymetry")
-            break
-        except KeyError:
-            continue
+    if in_file:
+        ds_input_bathy = xr.open_dataset(in_file)
 
-    if input_bathy is None:
-        keys = BDATAVAR.keys()
-        raise KeyError(
-            f"Bathymetry file doest not contain any variable with names {keys}"
-        )
+        for key in BDATAVAR:
+            try:
+                input_bathy = ds_input_bathy[key]
+                dset = BDATAVAR[key]
+                logger.info(f"Using variable `{key}`: assuming `{dset}` Bathymetry")
+                break
+            except KeyError:
+                continue
 
-    if grid_file is not None:
-        if (nx is None) or (ny is None):
-            raise typer.BadParameter(
-                "nx or ny not provided when grid_file was provided"
+        if input_bathy is None:
+            keys = BDATAVAR.keys()
+            raise KeyError(
+                f"Bathymetry file doest not contain any variable with names {keys}"
             )
-        if out_file is None:
-            raise typer.BadParameter("out_file was not when grid_file was provided")
 
         gD = load_grid(grid_file, nx, ny)
         grid_out = xr.Dataset(
@@ -471,32 +472,15 @@ def mk_bathy(
                 "lon_b": (["y_b", "x_b"], gD["xG"][:, :], {"units": "degrees_east"}),
             }
         )
+
+        logger.info("Creating regridder")
+        regridder = xe.Regridder(ds_input_bathy, grid_out, "conservative")
+
+        logger.info("Remapping Bathymery")
+        dr_out = regridder(input_bathy, keep_attrs=True)
     else:
-        logger.info("Reading `data`")
-        nml = f90nml.read("data")
-        usingsphericalpolargrid = nml["parm04"]["usingsphericalpolargrid"]
-        if not usingsphericalpolargrid:
-            raise NotImplementedError(
-                "Not implemented for any other grid apart from spherical-polar grid"
-            )
-
-        logger.info("Generating grid from `data`")
-        nx, ny, lon, lat = _grid_from_parm04(nml["parm04"])
-        if out_file is None:
-            out_file = nml["parm05"]["bathyfile"]
-
-        grid_out = xr.Dataset(
-            {
-                "lat": (["lat"], lat, {"units": "degrees_north"}),
-                "lon": (["lon"], lon, {"units": "degrees_east"}),
-            }
-        )
-
-    logger.info("Creating regridder")
-    regridder = xe.Regridder(ds_input_bathy, grid_out, "conservative")
-
-    logger.info("Remapping Bathymery")
-    dr_out = regridder(input_bathy, keep_attrs=True)
+       data = np.full((ny, nx), const_val)
+       dr_out = xr.DataArray(data, dims=('ny', 'nx'))
 
     logger.info(f"Writing to bathymetry to `{out_file}`")
     _da2bin(dr_out, out_file)
@@ -1440,14 +1424,14 @@ def great_circle_a(X1, X2, Y1, Y2):
     return np.array(dc).reshape(X1.shape)
 
 
-def quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4, nprocs: int = None):
+def quad_area_a(X1, X2, X3, X4, Y1, Y2, Y3, Y4, nprocs: int = 16):
     if nprocs is None:
         pool = Pool()
     else:
         pool = Pool(nprocs)
 
     area = pool.starmap(
-        quadrilateral_area_on_earth,
+        area_on_earth_g,
         (
             ((y1, x1), (y2, x2), (y3, x3), (y4, x4))
             for x1, x2, x3, x4, y1, y2, y3, y4 in zip(
