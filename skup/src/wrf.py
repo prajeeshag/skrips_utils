@@ -22,6 +22,30 @@ logger.addHandler(handler)
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
+
+def load_bathy_tile(bathy_file, nxa, nya, gfac):
+
+    nx, ny = nxa * gfac, nya * gfac
+    z = load_bathy(bathy_file,nx,ny)
+
+
+    zout2 = np.zeros([nya,nxa])
+    zout2[:,:] = 0.0
+    print(nx,ny,nxa,nya, z.shape)
+    for i in range(0,z.shape[0],gfac):
+        for j in range(0,z.shape[1],gfac):
+            w = z[i:i+gfac,j:j+gfac]
+            # print(i,j)
+            if np.all(w>=0):
+                zout2[i//gfac,j//gfac] = 100. #land
+            elif np.all(w<0):
+                zout2[i//gfac,j//gfac] = -100. #ocean
+    if np.any(zout2==0.0):
+        raise ValueError('The uptiled ocean land-sea mask to the WRF grid is not homogenious')
+    return zout2
+
+
+
 @app.command()
 def match_mitgcm_lmask(
     geo: Path = typer.Option(
@@ -40,6 +64,7 @@ def match_mitgcm_lmask(
         file_okay=True,
         help="Bathymetry file",
     ),
+    gfac: int = typer.Option(1,help='Grid ratio MITGCM:WRF')
 ):
     """Edits WRF geo_em file to match the MITgcm land mask"""
 
@@ -64,7 +89,8 @@ def match_mitgcm_lmask(
     ny, nx = landmask.shape
 
     logger.info("Reading bathymetry file")
-    z = load_bathy(bathy_file, nx, ny)
+    z = load_bathy_tile(bathy_file, nx, ny, gfac)
+
     if np.any(np.isnan(z)):
         msg = "Bathymetry contains NaN values"
         logger.error(msg)
