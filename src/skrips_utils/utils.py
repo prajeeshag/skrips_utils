@@ -110,17 +110,21 @@ def vgrid_from_parm04(nml_file):
 
     nml = CaseInsensitiveDict(nml)
     try:
-        delz = np.array(nml["delz"])
-    except KeyError as e:
-        logger.error("delz does not exist in &parm04")
-        raise e
+        delz = np.array(nml["delr"])
+    except KeyError:
+        logger.error("delr does not exist in &parm04. trying delz")
+        try:
+            delz = np.array(nml["delz"])
+        except KeyError:
+            logger.error("delr and delz does not exist in &parm04")
+            raise e
 
     zi = [0.0]
     for dz in delz:
         zi.append(zi[-1] + dz)
 
     z = np.array(zi[1:]) - delz * 0.5
-    return z, delz
+    return z, zi, delz
 
 
 def fill_missing3D(arr):

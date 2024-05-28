@@ -132,7 +132,7 @@ def make_bc(
     cdo = Cdo()
     if nml is None:
         nml = Path("data")
-    z, _ = vgrid_from_parm04(nml)
+    z, _, _ = vgrid_from_parm04(nml)
     levels = ",".join(["{:.3f}".format(i) for i in z])
 
     # generate boundary grids
