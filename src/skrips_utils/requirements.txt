@@ -7,3 +7,5 @@ typer
 black
 scipy
 matplotlib
+pandas
+xlsxwriter
