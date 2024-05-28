@@ -1,3 +1,4 @@
+import os
 import f90nml
 import pandas as pd
 from utils import CaseInsensitiveDict
@@ -13,6 +14,8 @@ def format_element(element):
         return f"{element[0]}...{element[-1]}"
     elif isinstance(element, bool):
         return str(element)
+    elif isinstance(element, str):
+        return os.path.basename(element)
     return element
 
 
@@ -80,6 +83,8 @@ def main(
                 val1_list.append(val1)
                 val2_list.append(val2)
 
+        if len(var_list) == 0:
+            continue
         df = pd.DataFrame(
             {
                 "variable": var_list,
@@ -87,12 +92,14 @@ def main(
                 name2 if name2 else nml_file2: val2_list,
             }
         )
-        df_dict[nm] = df.applymap(format_element)
+        df_dict[nm] = df.map(format_element)
 
     sanitized_file1 = sanitize_filename(nml_file1)
     sanitized_file2 = sanitize_filename(nml_file2)
     output_file = f"{sanitized_file1}_vs_{sanitized_file2}.xlsx"
 
+    if not df_dict:
+        return
     with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
         for nm, df in df_dict.items():
             df.to_excel(writer, sheet_name=nm, index=False)
