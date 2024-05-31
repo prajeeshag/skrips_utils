@@ -130,7 +130,12 @@ def vgrid_from_parm04(nml_file):
 def fill_missing3D(arr):
     for i in range(arr.shape[0]):
         arr2D = arr[i, :, :]
-        fill_missing2D(arr2D)
+        if np.all(np.isnan(arr2D)):
+            if i == 0:
+                raise ValueError(f"layer {i} contains all missing values, cannot fill")
+            arr2D = arr[i - 1, :, :]
+        else:
+            fill_missing2D(arr2D)
         arr[i, :, :] = arr2D
 
 

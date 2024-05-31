@@ -8,7 +8,13 @@ import xarray as xr
 import typer
 from cdo import Cdo
 
-from utils import (fill_missing2D, load_grid, load_bathy, fill_missing3D, vgrid_from_parm04,)
+from utils import (
+    fill_missing2D,
+    load_grid,
+    load_bathy,
+    fill_missing3D,
+    vgrid_from_parm04,
+)
 
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
@@ -24,7 +30,9 @@ BNDDEF = {
 logger = logging.getLogger(__name__)
 
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s")
+formatter = logging.Formatter(
+    "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+)
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
 handler.setFormatter(formatter)
@@ -116,8 +124,8 @@ def make_bc(
         help="Path to the MITgcm data namelist file",
     ),
     ovarnm: str = typer.Option(
-        default = None,
-        help = "Name of the variable in the boundary filenames i.e. obE_<ovarnm>.bin. [default: varnm]",
+        default=None,
+        help="Name of the variable in the boundary filenames i.e. obE_<ovarnm>.bin. [default: varnm]",
     ),
     addc: float = typer.Option(
         default=0.0,
@@ -128,7 +136,10 @@ def make_bc(
         help="Multiply a constant to the input field",
     ),
 ):
-    """Generate MITgcm boundary conditions"""
+    """
+    Generate boundary conditions for MITgcm from a CF-compliant Netcdf data
+    It assume that the levels are in meters and is from top to bottom
+    """
     cdo = Cdo()
     if nml is None:
         nml = Path("data")
@@ -140,12 +151,19 @@ def make_bc(
 
     for bnd, gridfile in bndAct:
         logger.info(f"Processing {bnd} boundary")
-        # Generate cdo weights
-        cdoOpr1 = " "
-        cdoOpr1 += f" -remapnn,{gridfile} -selvar,{varnm} {input}"
-        cdoOpr1 = f" -mulc,{mulc} -addc,{addc} -intlevel,{levels} " + cdoOpr1
-        arr = cdo.setmisstonn(input=cdoOpr1, returnXArray=varnm)
+
+        cdoOpr1 = f" -selvar,{varnm} {input} "
+        cdoOpr2 = f" -setlevel,0 -sellevidx,1 " + cdoOpr1
+        cdoOpr1 = f" -merge " + cdoOpr2 + cdoOpr1
+        cdoOpr1 = f" -remapnn,{gridfile} " + cdoOpr1
+        cdoOpr1 = f" -mulc,{mulc} -addc,{addc} " + cdoOpr1
+        cdoOpr = f" -intlevel,{levels} " + cdoOpr1
+        logger.info(f"CDO operation: {cdoOpr}")
+
+        arr = cdo.fillmiss2(input=cdoOpr, returnXArray=varnm)
+
         arr = arr.squeeze()
+
         shape = arr.shape
         is2D = len(shape) == 2
 
@@ -163,8 +181,16 @@ def make_bc(
         if ovarnm is None:
             ovarnm = varnm
         out_file = f"ob{bnd}_{ovarnm}.bin"
-        logger.info(f"Writing {bnd} boundary for {varnm} to {out_file}")
+
         logger.info(f"Shape of {bnd} boundary for {varnm} is {arr.shape}")
+        logger.info(
+            f"Maximum value of {bnd} boundary for {varnm} is {arr.values.max()}"
+        )
+        logger.info(
+            f"Minimum value of {bnd} boundary for {varnm} is {arr.values.min()}"
+        )
+        logger.info(f"Writing {bnd} boundary for {varnm} to {out_file}")
+
         arr.values.astype(">f4").tofile(out_file)
 
 
