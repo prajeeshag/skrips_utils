@@ -1,0 +1,29 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "skrips_utils"
+authors = [{name = "Prajeesh Ag", email = "prajeeshag@gmail.com"}]
+readme = "README.rst"
+license = {file = "LICENSE"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+dynamic = ["version", "description"]
+dependencies = [
+"numpy",
+"xarray",
+"netcdf4",
+"f90nml",
+"cdo",
+"typer",
+"black",
+"scipy",
+"matplotlib",
+"pandas",
+"xlsxwriter",
+]
+
+[project.scripts]
+mkMITgcmIC = "skrips_utils.mkMITgcmIC:app"
+mkMITgcmBC = "skrips_utils.mkMITgcmBC:app"
+diffNML = "skrips_utils.diffNML:app"
