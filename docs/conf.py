@@ -10,8 +10,8 @@ import os
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "skup"
-copyright = "2023, Prajeesh Ag"
+project = "skrips_utils"
+copyright = "2024, Prajeesh Ag"
 author = "Prajeesh Ag"
 
 # -- General configuration ---------------------------------------------------
@@ -42,6 +42,7 @@ click_mock_imports = [
     "scipy",
     "yaml",
     "cdo",
+    "pandas",
 ]
 
 templates_path = ["_templates"]

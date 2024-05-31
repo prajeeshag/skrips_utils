@@ -8,15 +8,14 @@ import xarray as xr
 import typer
 from cdo import Cdo
 
-from utils import (
+from .utils import (
     load_grid,
     fill_missing3D,
     vgrid_from_parm04,
 )
 
 
-app = typer.Typer(pretty_exceptions_show_locals=False)
-
+app = typer.Typer(add_completion=False)
 
 BNDDEF = {
     "W": (slice(None), slice(0, 1)),
@@ -159,6 +158,8 @@ def main(
     logger.info(f"Writing IC for {varnm} to {out_file}")
     arr.values.astype(">f4").tofile(out_file)
 
+
+app_click = typer.main.get_command(app)
 
 if __name__ == "__main__":
     app()

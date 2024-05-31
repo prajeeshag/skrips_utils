@@ -13,10 +13,6 @@ handler.setLevel(logging.DEBUG)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-nmlparser = f90nml.Parser()
-nmlparser.comment_tokens += "#"
-nmlparser.comment_tokens += "$"
-
 MITGCM_GRID_VARS = [
     "xC",
     "yC",
@@ -99,6 +95,10 @@ def load_grid(grid_file: Path, nx: int, ny: int) -> Dict:
 
 
 def vgrid_from_parm04(nml_file):
+    nmlparser = f90nml.Parser()
+    nmlparser.comment_tokens += "#"
+    nmlparser.comment_tokens += "$"
+
     nml = nmlparser.read(nml_file)
     nml = CaseInsensitiveDict(nml)
     try:

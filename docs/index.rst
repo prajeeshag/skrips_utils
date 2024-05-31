@@ -1,6 +1,6 @@
-Welcome to **skup** documentation!
-====================================
-**skup** is a python cli utility (and library) for generating and manipulating input and configuration files to run *SKRIPS* model developed at *KAUST*. *SKRIPS* is coupled model with *WRF* as its atmosphere and *MITgcm* as its ocean component.
+Welcome to **skrips_utils** documentation!
+==========================================
+**skrips_utils** is a set of python cli utilities for pre/post-processing *SKRIPS* model data.
 
 .. note::
     This project is under active development.

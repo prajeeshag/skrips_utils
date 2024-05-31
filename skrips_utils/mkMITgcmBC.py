@@ -8,7 +8,7 @@ import xarray as xr
 import typer
 from cdo import Cdo
 
-from utils import (
+from .utils import (
     fill_missing2D,
     load_grid,
     load_bathy,
@@ -17,7 +17,7 @@ from utils import (
 )
 
 
-app = typer.Typer(pretty_exceptions_show_locals=False)
+app = typer.Typer(add_completion=False)
 
 
 BNDDEF = {
@@ -193,6 +193,8 @@ def make_bc(
 
         arr.values.astype(">f4").tofile(out_file)
 
+
+app_click = typer.main.get_command(app)
 
 if __name__ == "__main__":
     app()

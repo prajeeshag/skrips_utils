@@ -1,11 +1,11 @@
 import os
 import f90nml
 import pandas as pd
-from utils import CaseInsensitiveDict
+from .utils import CaseInsensitiveDict
 import typer
 import re
 
-VARS_TO_SKIP = set()  # Replace with the actual variables to skip if needed
+app = typer.Typer(add_completion=False)
 
 
 # Function to format list elements and boolean values
@@ -23,6 +23,7 @@ def sanitize_filename(filename):
     return re.sub(r'[\\/*?:"<>|]', "_", filename)
 
 
+@app.command()
 def main(
     nml_file1: str = typer.Argument(help="Path to the first namelist file"),
     nml_file2: str = typer.Argument(help="Path to the second namelist file"),
@@ -59,7 +60,7 @@ def main(
             print(f"Namelist {nm} does not exist in {nml_file2}")
             continue
 
-        vars = list(set(list(nml1.keys()) + list(nml2.keys())).difference(VARS_TO_SKIP))
+        vars = list(set(list(nml1.keys()) + list(nml2.keys())))
 
         nm_list = []
         var_list = []
@@ -107,5 +108,7 @@ def main(
     print(f"Difference file created: {output_file}")
 
 
+app_click = typer.main.get_command(app)
+
 if __name__ == "__main__":
-    typer.run(main)
+    app()
