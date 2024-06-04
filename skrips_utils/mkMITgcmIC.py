@@ -120,7 +120,7 @@ def main(
     It assume that the levels are in meters and is from top to bottom
     """
 
-    cdo = Cdo()
+    cdo = Cdo(tempdir='tmp/')
     grid_nml = nml
     z, _, _ = vgrid_from_parm04(grid_nml)
     levels = ",".join(["{:.3f}".format(i) for i in z])

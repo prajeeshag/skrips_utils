@@ -140,7 +140,7 @@ def make_bc(
     Generate boundary conditions for MITgcm from a CF-compliant Netcdf data
     It assume that the levels are in meters and is from top to bottom
     """
-    cdo = Cdo()
+    cdo = Cdo(tempdir='tmp/')
     if nml is None:
         nml = Path("data")
     z, _, _ = vgrid_from_parm04(nml)
