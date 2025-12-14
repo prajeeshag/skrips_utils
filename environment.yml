@@ -5,6 +5,11 @@ channels:
 dependencies:
   - python=3.10
   - cdo
-  - pip 
+  - python-cdo
+  - pip
   - pip:
-      - "flit"
+      - "f90nml"
+      - "docstring_parser"
+      - "typer"
+      - "pyyaml"
+      - git+https://github.com/prajeeshag/SphericalPolygon@sphericalpolygon@patch-1

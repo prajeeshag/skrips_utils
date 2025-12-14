@@ -10,6 +10,8 @@ from pathlib import Path
 from sphericalpolygon.excess_area import polygon_area
 from sphericalpolygon import Sphericalpolygon
 from typing import Tuple
+from geographiclib.polygonarea import PolygonArea
+from geographiclib.geodesic import Geodesic
 
 
 RSPHERE = 6370000.0
@@ -199,3 +201,68 @@ def load_bathy(bathy_file: Path, nx: int, ny: int):
             f"Dimension mismatch for bathymetry field from file {bathy_file}"
         )
     return z.reshape(ny, nx)
+
+
+# Convert degrees to radians
+def degrees_to_radians(degrees):
+    return degrees * (math.pi / 180)
+
+# Haversine formula to calculate the great-circle distance between two points
+def haversine(lat1, lon1, lat2, lon2):
+    lat1_rad = degrees_to_radians(lat1)
+    lon1_rad = degrees_to_radians(lon1)
+    lat2_rad = degrees_to_radians(lat2)
+    lon2_rad = degrees_to_radians(lon2)
+
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    return RSPHERE * c
+
+
+def area_on_earth(
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    c: Tuple[float, float],
+    d: Tuple[float, float],
+):
+    lon1=a[1]; lat1=a[0]
+    lon2=b[1]; lat2=b[0]
+    lon3=c[1]; lat3=c[0]
+    lon4=d[1]; lat4=d[0]
+
+    # Calculate distances between consecutive points
+    d12 = haversine(lat1, lon1, lat2, lon2)
+    d23 = haversine(lat2, lon2, lat3, lon3)
+    d34 = haversine(lat3, lon3, lat4, lon4)
+    d41 = haversine(lat4, lon4, lat1, lon1)
+
+    print(d12)
+    # Calculate the semi-perimeter
+    s = (d12 + d23 + d34 + d41)*0.5
+
+    print(s)
+    # Calculate the area using Heron's formula
+    area = math.sqrt(s * (s - d12) * (s - d23) * (s - d34) * (s - d41))
+    print(area)
+    raise SystemError
+    return area
+
+
+def area_on_earth_g(
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    c: Tuple[float, float],
+    d: Tuple[float, float],
+):
+    points = [a,b,c,d]
+    polyArea = PolygonArea(Geodesic.WGS84, False)
+    for coord in points:
+        polyArea.AddPoint(coord[0], coord[1])
+    area = polyArea.Compute(False, False)
+    return area[2]
+
+
