@@ -3,12 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - xesmf=0.7.0
-  - xarray
-  - matplotlib
-  - cartopy
-  - numpy
-  - netcdf4
+  - python=3.10
   - cdo
   - python-cdo
   - pip

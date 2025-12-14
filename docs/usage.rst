@@ -13,11 +13,12 @@ Clone the github repository
 
 
 
-This will create a new conda environment named *skrips*. Activate this environment to use the *skup* script.
+This will create a new conda environment named *skrips*. Activate this environment to use the cli utilities.
 
 .. code-block:: console
 
-    $ conda activate skrips
+    $ mamba activate skrips
+    
 
 .. note:: 
     Install `Miniconda <https://docs.conda.io/en/latest/miniconda.html>`_ to get *conda*.
@@ -28,6 +29,14 @@ This will create a new conda environment named *skrips*. Activate this environme
 Usage
 ============
 
-.. click:: skup.main:app_click
-   :prog: skup
+.. click:: skrips_utils.mkMITgcmBC:app_click
+   :prog: mkMITgcmBC
+   :nested: full
+
+.. click:: skrips_utils.mkMITgcmIC:app_click
+   :prog: mkMITgcmIC
+   :nested: full
+
+.. click:: skrips_utils.diffNML:app_click
+   :prog: diffNML
    :nested: full
