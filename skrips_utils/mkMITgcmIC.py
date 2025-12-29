@@ -131,6 +131,7 @@ def main(
     cdoOpr2 = f" -setlevel,0 -sellevidx,1 " + cdoOpr1
     cdoOpr1 = f" -merge " + cdoOpr2 + cdoOpr1
     cdoOpr1 = f" -remapnn,{gridFile} " + cdoOpr1
+    cdoOpr1 = f" -setmisstonn {cdoOpr1}"
     cdoOpr1 = f" -mulc,{mulc} -addc,{addc} " + cdoOpr1
     cdoOpr = f" -intlevel,{levels} " + cdoOpr1
     logger.info(f"CDO operation: {cdoOpr}")
